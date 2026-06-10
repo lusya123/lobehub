@@ -1,9 +1,9 @@
 import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { userMemoryRouter } from '@/server/routers/lambda/userMemory';
 import { AsyncTaskErrorType, AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 import { MemorySourceType } from '@/types/userMemory';
+import { userMemoryRouter } from '~server/routers/lambda/userMemory';
 
 const mockFindActiveByType = vi.fn();
 const mockCreate = vi.fn();
@@ -50,14 +50,14 @@ vi.mock('@/envs/app', () => ({
   },
 }));
 
-vi.mock('@/server/globalConfig/parseMemoryExtractionConfig', () => ({
+vi.mock('~server/globalConfig/parseMemoryExtractionConfig', () => ({
   parseMemoryExtractionConfig: vi.fn(() => ({
     webhook: { baseUrl: 'https://internal.example.com' },
     upstashWorkflowExtraHeaders: { 'x-test': 'ok' },
   })),
 }));
 
-vi.mock('@/server/services/memory/userMemory/extract', () => ({
+vi.mock('~server/services/memory/userMemory/extract', () => ({
   MemoryExtractionWorkflowService: {
     triggerProcessUsers: mockTriggerProcessUsers,
   },

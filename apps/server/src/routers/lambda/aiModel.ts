@@ -14,9 +14,9 @@ import { UserModel } from '@/database/models/user';
 import { AiInfraRepos } from '@/database/repositories/aiInfra';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { getServerGlobalConfig } from '@/server/globalConfig';
-import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { type ProviderConfig } from '@/types/user/settings';
+import { getServerGlobalConfig } from '~server/globalConfig';
+import { KeyVaultsGateKeeper } from '~server/modules/KeyVaultsEncrypt';
 
 const aiModelProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;

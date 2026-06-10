@@ -32,7 +32,7 @@ import { executionTargetToRuntimeMode, resolveExecutionTarget } from '@/helpers/
 import {
   buildAllowedBuiltinTools,
   DEVICE_TOOL_IDENTIFIERS,
-} from '@/server/services/aiAgent/deviceToolRegistry';
+} from '~server/services/aiAgent/deviceToolRegistry';
 
 import {
   type ServerAgentToolsContext,

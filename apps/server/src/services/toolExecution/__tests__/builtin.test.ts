@@ -11,10 +11,10 @@ vi.mock('../serverRuntimes', () => ({
   getServerRuntime: vi.fn(async () => ({ createDocument: mockApiHandler })),
 }));
 
-vi.mock('@/server/services/composio', () => ({
+vi.mock('~server/services/composio', () => ({
   ComposioService: vi.fn().mockImplementation(() => ({})),
 }));
-vi.mock('@/server/services/market', () => ({
+vi.mock('~server/services/market', () => ({
   MarketService: vi.fn().mockImplementation(() => ({})),
 }));
 

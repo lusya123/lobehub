@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { AgentSignalOperationMarker } from '@/server/services/agentSignal/operationMarker';
+import type { AgentSignalOperationMarker } from '~server/services/agentSignal/operationMarker';
 
 import type { ToolResultWithKind } from '../../finalStateExtractor';
 import { buildSelfIterationReceipts } from '../buildSelfIterationReceipts';

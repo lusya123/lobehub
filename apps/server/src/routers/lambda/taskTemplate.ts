@@ -3,7 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { authedProcedure, router } from '@/libs/trpc/lambda';
-import { ENABLED_SKILL_SOURCES, TaskTemplateService } from '@/server/services/taskTemplate';
+import { ENABLED_SKILL_SOURCES, TaskTemplateService } from '~server/services/taskTemplate';
 
 const listDailyRecommendSchema = z.object({
   count: z.number().int().min(1).optional(),

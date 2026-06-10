@@ -5,8 +5,8 @@ import { eq } from 'drizzle-orm';
 
 import { TaskModel } from '@/database/models/task';
 import { tasks } from '@/database/schemas';
-import { AgentDocumentsService } from '@/server/services/agentDocuments';
-import { emitAgentDocumentToolOutcomeSafely } from '@/server/services/agentDocuments/toolOutcome';
+import { AgentDocumentsService } from '~server/services/agentDocuments';
+import { emitAgentDocumentToolOutcomeSafely } from '~server/services/agentDocuments/toolOutcome';
 
 import { type ServerRuntimeRegistration } from './types';
 

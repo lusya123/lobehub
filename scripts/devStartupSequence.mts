@@ -42,8 +42,10 @@ let nextPort = 3010;
 let nextRootUrl = `http://${NEXT_HOST}:${nextPort}/`;
 let nextProcess: ChildProcess | undefined;
 let viteProcess: ChildProcess | undefined;
+let honoProcess: ChildProcess | undefined;
 let nextHandle: DevProcessHandle | undefined;
 let viteHandle: DevProcessHandle | undefined;
+let honoHandle: DevProcessHandle | undefined;
 let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 let shuttingDown = false;
 
@@ -171,11 +173,13 @@ const runNextBackgroundTasks = () => {
 const terminateChildren = () => {
   sendSignalToDevProcess(viteHandle, 'SIGTERM');
   sendSignalToDevProcess(nextHandle, 'SIGTERM');
+  sendSignalToDevProcess(honoHandle, 'SIGTERM');
 };
 
 const forceKillChildren = () => {
   sendSignalToDevProcess(viteHandle, 'SIGKILL');
   sendSignalToDevProcess(nextHandle, 'SIGKILL');
+  sendSignalToDevProcess(honoHandle, 'SIGKILL');
 };
 
 const clearForceKillTimer = () => {
@@ -189,7 +193,8 @@ const hasChildSettled = (child?: ChildProcess) =>
 
 const clearForceKillTimerWhenChildrenSettle = () => {
   if (!shuttingDown) return;
-  if (hasChildSettled(nextProcess) && hasChildSettled(viteProcess)) clearForceKillTimer();
+  if (hasChildSettled(nextProcess) && hasChildSettled(viteProcess) && hasChildSettled(honoProcess))
+    clearForceKillTimer();
 };
 
 const shutdownAll = (signal: NodeJS.Signals) => {
@@ -209,7 +214,7 @@ const shutdownAll = (signal: NodeJS.Signals) => {
   }, FORCE_KILL_TIMEOUT_MS);
 };
 
-const watchChildExit = (child: ChildProcess, name: 'next' | 'vite') => {
+const watchChildExit = (child: ChildProcess, name: 'hono' | 'next' | 'vite') => {
   child.once('exit', (code, signal) => {
     if (shuttingDown) {
       clearForceKillTimerWhenChildrenSettle();
@@ -247,6 +252,15 @@ const main = async () => {
     forceKillChildren();
   });
 
+  // The (backend) routes are thin shells forwarding into the standalone Hono
+  // runtime; point them at the dev Hono server and spawn it alongside Next.
+  const honoPort = Number.parseInt(process.env.HONO_PORT || '', 10) || 3011;
+  process.env.LOBE_DEV_HONO_TARGET ||= `http://localhost:${honoPort}`;
+
+  honoProcess = runNpmScript('dev:hono:server');
+  honoHandle = createDevProcessHandle({ isWindows, pid: honoProcess.pid });
+  watchChildExit(honoProcess, 'hono');
+
   nextProcess = spawn('npx', ['next', 'dev', '-p', String(nextPort)], {
     detached: !isWindows,
     env: process.env,
@@ -264,6 +278,7 @@ const main = async () => {
   await Promise.race([
     new Promise((resolve) => nextProcess?.once('exit', resolve)),
     new Promise((resolve) => viteProcess?.once('exit', resolve)),
+    new Promise((resolve) => honoProcess?.once('exit', resolve)),
   ]);
 };
 

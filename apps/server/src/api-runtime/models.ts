@@ -55,7 +55,18 @@ export const pullModelsAPIHandler = (request: Request, { provider }: ProviderPar
     const routeProvider = (await params).provider!;
 
     try {
-      const agentRuntime = await initModelRuntimeFromDB(serverDB, userId, routeProvider);
+      const workspaceId = await resolveValidWorkspaceIdFromRequest({
+        req: authedRequest,
+        serverDB,
+        userId,
+      });
+
+      const agentRuntime = await initModelRuntimeFromDB(
+        serverDB,
+        userId,
+        routeProvider,
+        workspaceId,
+      );
 
       const data = (await authedRequest.json()) as PullModelParams;
 

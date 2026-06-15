@@ -313,7 +313,7 @@ describe('AiAgentService.execAgent - device auto-activation', () => {
 
   describe('executionTarget gating (none / sandbox never route to a device)', () => {
     const overrideAgencyConfig = async (agencyConfig: Record<string, unknown>) => {
-      const { AgentService } = await import('@/server/services/agent');
+      const { AgentService } = await import('~server/services/agent');
       vi.mocked(AgentService).mockImplementation(
         () =>
           ({

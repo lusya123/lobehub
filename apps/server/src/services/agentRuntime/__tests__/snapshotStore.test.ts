@@ -12,7 +12,7 @@ const setEnv = (nodeEnv: string, agentS3Tracing?: string) => {
 };
 
 const loadModule = vi.fn((moduleName: string) => {
-  if (moduleName === '@/server/modules/AgentTracing') {
+  if (moduleName === '~server/modules/AgentTracing') {
     return { S3SnapshotStore: s3SnapshotStoreMock };
   }
 
@@ -34,7 +34,7 @@ describe('agent runtime snapshot store defaults', () => {
 
     expect(shouldUseAgentS3Tracing()).toBe(true);
     expect(createDefaultSnapshotStore(loadModule)).toEqual({ kind: 's3' });
-    expect(loadModule).toHaveBeenCalledWith('@/server/modules/AgentTracing');
+    expect(loadModule).toHaveBeenCalledWith('~server/modules/AgentTracing');
     expect(s3SnapshotStoreMock).toHaveBeenCalledTimes(1);
     expect(fileSnapshotStoreMock).not.toHaveBeenCalled();
   });
@@ -54,7 +54,7 @@ describe('agent runtime snapshot store defaults', () => {
 
     expect(shouldUseAgentS3Tracing()).toBe(true);
     expect(createDefaultSnapshotStore(loadModule)).toEqual({ kind: 's3' });
-    expect(loadModule).toHaveBeenCalledWith('@/server/modules/AgentTracing');
+    expect(loadModule).toHaveBeenCalledWith('~server/modules/AgentTracing');
     expect(s3SnapshotStoreMock).toHaveBeenCalledTimes(1);
     expect(fileSnapshotStoreMock).not.toHaveBeenCalled();
   });

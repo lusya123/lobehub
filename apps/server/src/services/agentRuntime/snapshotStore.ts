@@ -36,7 +36,7 @@ export const createDefaultSnapshotStore = (
   if (shouldUseAgentS3Tracing()) {
     try {
       const { S3SnapshotStore } = loadModule(
-        '@/server/modules/AgentTracing',
+        '~server/modules/AgentTracing',
       ) as S3SnapshotStoreModule;
       return new S3SnapshotStore();
     } catch {

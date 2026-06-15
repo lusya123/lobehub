@@ -1033,7 +1033,7 @@ describe('aiChatRouter', () => {
     });
 
     it('marks input completion runtime 4xx errors to skip tRPC handler logging', async () => {
-      const { initModelRuntimeFromDB } = await import('@/server/modules/ModelRuntime');
+      const { initModelRuntimeFromDB } = await import('~server/modules/ModelRuntime');
       const runtimeError = {
         error: { message: 'rate limited' },
         errorType: AgentRuntimeErrorType.RateLimitExceeded,
@@ -1058,7 +1058,7 @@ describe('aiChatRouter', () => {
     });
 
     it('does not mark non-input-completion runtime errors as silent', async () => {
-      const { initModelRuntimeFromDB } = await import('@/server/modules/ModelRuntime');
+      const { initModelRuntimeFromDB } = await import('~server/modules/ModelRuntime');
       const runtimeError = {
         error: { message: 'rate limited' },
         errorType: AgentRuntimeErrorType.RateLimitExceeded,
@@ -1083,7 +1083,7 @@ describe('aiChatRouter', () => {
     });
 
     it('maps raw provider 4xx errors to BAD_REQUEST instead of internal errors', async () => {
-      const { initModelRuntimeFromDB } = await import('@/server/modules/ModelRuntime');
+      const { initModelRuntimeFromDB } = await import('~server/modules/ModelRuntime');
 
       // Raw SDK APIError shape: carries an HTTP status but no errorType — the
       // generateObject path rethrows upstream errors verbatim (e.g. a BYOK

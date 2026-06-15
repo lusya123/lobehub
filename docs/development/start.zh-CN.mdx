@@ -90,21 +90,16 @@ Next.js 只是一层薄壳：`src/app/(backend)/**/route.ts`
 | **Classic**   | `bun run dev`           | Hono（`:3011`）+ Next 壳（`:3010`）+ Vite（`:9876`） |
 | **Hono-Lite** | `bun run dev:hono-lite` | Hono（`:3011`）+ Vite（`:9876`），无 Next           |
 
-日常开发用 Hono-Lite 即可：SPA、完整 API、
-以及 `bun run dev:login`（仅开发环境注册的 Better Auth 端点，
-直接签发真实 session cookie）都不需要 Next。
-只有在改动仍由 Next 渲染的部分时才需要 Classic 模式 ——
-`src/app/[variants]/(auth)/` 下的 SSR 认证页
-（signin / OAuth consent 界面）、SPA HTML 模板服务、
-或 Next middleware 行为。
+日常开发用 Hono-Lite 即可：主 SPA、auth SPA、完整 API
+都不需要 Next。只有在改动 SPA HTML 模板服务或
+Next middleware 行为时才需要 Classic 模式。
 
 典型 Hono-Lite 启动流程：
 
 ```bash
 bun run dev:docker      # Docker 服务（Postgres、Redis、RustFS、SearXNG）
 bun run dev:hono-lite   # Hono + Vite，无 Next
-bun run dev:login       # 在浏览器中打开本地开发登录链接
-open http://localhost:9876
+open http://localhost:9876/signin
 ```
 
 server 包本身也可独立运转：

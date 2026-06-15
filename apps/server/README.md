@@ -77,13 +77,9 @@ bun run dev:docker
 #    starts Vite. Either child exiting tears the whole thing down.
 bun run dev:hono-lite
 
-# 3. Open a local dev session. Better Auth's dev-local-login endpoint is
-#    enabled automatically under the hono-lite topology and issues a real
-#    session cookie. dev:login opens the right URL in your browser.
-bun run dev:login
-
-# 4. Use the SPA.
-open http://localhost:9876
+# 3. Sign in through the auth SPA. The same Vite dev server serves both the
+#    main SPA and auth SPA; auth API requests are proxied to Hono.
+open http://localhost:9876/signin
 ```
 
 ### What Hono Serves
@@ -107,10 +103,6 @@ The `/api/auth/*` mount uses Better Auth's handler. Webhook signature verificati
 | `VITE_PORT`                | `9876`  |
 | `PORT` (classic Next mode) | `3010`  |
 
-### Dev-Login Flag
-
-`devTopology.ts` auto-sets `LOBE_DEV_AUTH_BOOTSTRAP=1` whenever the topology is `hono-lite`. Better Auth's `/api/auth/dev/local-login` endpoint is only registered when both `LOBE_DEV_AUTH_BOOTSTRAP=1` and `NODE_ENV=development` hold — so it never leaks into production builds.
-
 ## Known Gaps (POC Scope)
 
 The following are intentionally out of scope for the T1 dev runtime:
@@ -133,4 +125,4 @@ The following are intentionally out of scope for the T1 dev runtime:
 
 - PR #15582 — the POC PR (stacked on `refactor/server-deps/business`).
 - PR #14800 — the original gray-release Hono runtime (this POC ports its idea onto `apps/server`).
-- `scripts/devHonoLite.mts`, `scripts/devTopology.ts`, `scripts/devLocalLogin.mts` — orchestration internals.
+- `scripts/devHonoLite.mts`, `scripts/devTopology.ts` — orchestration internals.

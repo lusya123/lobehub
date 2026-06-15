@@ -7,6 +7,7 @@ import type { PluginOption, ViteDevServer } from 'vite';
 import { defineConfig, loadEnv } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+import { authSpaDevServer } from './plugins/vite/authSpaDev';
 import { viteEnvRestartKeys } from './plugins/vite/envRestartKeys';
 import {
   createSharedRolldownOutput,
@@ -142,6 +143,7 @@ export default defineConfig({
         },
       }),
     ...sharedRendererPlugins({ platform }),
+    isDev && !isAuth && authSpaDevServer(),
 
     isDev && {
       name: 'lobe-dev-proxy-print',
@@ -324,7 +326,7 @@ export default defineConfig({
       '/api': apiTarget,
       '/f': apiTarget,
       '/market': apiTarget,
-      '/oauth': apiTarget,
+      '/oauth/connector': apiTarget,
       '/oidc': apiTarget,
       '/trpc': apiTarget,
       '/webapi': apiTarget,

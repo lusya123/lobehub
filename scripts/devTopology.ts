@@ -182,8 +182,6 @@ export const applyDefaultDevTopologyEnv = (env: Env = process.env) => {
     env.LOBE_DEV_API_TARGET ||= config.apiTarget;
   }
   if (config.honoTarget) env.LOBE_DEV_HONO_TARGET ||= config.honoTarget;
-  if (config.topology === 'hono-lite') env.LOBE_DEV_AUTH_BOOTSTRAP ||= '1';
-
   const strategy = devTopologyStrategies[config.topology];
   for (const envName of strategy.nativeNextRuntimeEnv ?? []) {
     env[envName] = 'next';

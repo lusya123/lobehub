@@ -1,12 +1,6 @@
-import { getServerFeatureFlagsValue } from '@/config/featureFlags';
-import { appEnv } from '@/envs/app';
-import { authEnv } from '@/envs/auth';
-import { type Locales, normalizeLocale } from '@/locales/resources';
-import { getServerAuthConfig } from '@/server/globalConfig/getServerAuthConfig';
-import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/server/spaHtml';
-import { type AuthSPAServerConfig } from '@/types/spaServerConfig';
-
-import { buildSeoMeta } from './seoMeta';
+import type { Locales } from '@/locales/resources';
+import { createAuthSpaHtmlResponse } from '@/server/authSpaHtml';
+import { fetchViteDevTemplate } from '@/server/spaHtml';
 
 export function generateStaticParams() {
   const staticLocales: Locales[] = ['en-US', 'zh-CN'];
@@ -29,19 +23,11 @@ export async function GET(
   { params }: { params: Promise<{ locale: string; path?: string[] }> },
 ) {
   const { locale: rawLocale, path } = await params;
-  const locale = normalizeLocale(rawLocale);
-
-  const authConfig: AuthSPAServerConfig = {
-    analyticsConfig: buildAnalyticsConfig(),
-    config: getServerAuthConfig(),
-    enableOIDC: authEnv.ENABLE_OIDC,
-    featureFlags: getServerFeatureFlagsValue(),
-    globalCDN: appEnv.CDN_USE_GLOBAL,
-  };
-
   const template = await getTemplate();
-  const pathname = `/${(path ?? []).join('/')}`;
-  const seoMeta = await buildSeoMeta(locale, pathname);
 
-  return renderSpaHtml(template, { seoMeta, serverConfig: authConfig });
+  return createAuthSpaHtmlResponse({
+    locale: rawLocale,
+    pathname: `/${(path ?? []).join('/')}`,
+    template,
+  });
 }

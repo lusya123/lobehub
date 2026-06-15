@@ -95,20 +95,17 @@ Two dev topologies:
 | **Classic**   | `bun run dev`           | Hono (`:3011`) + Next shell (`:3010`) + Vite (`:9876`) |
 | **Hono-Lite** | `bun run dev:hono-lite` | Hono (`:3011`) + Vite (`:9876`), no Next               |
 
-In day-to-day work, Hono-Lite is enough: the SPA, the full API surface,
-and `bun run dev:login` (a dev-only Better Auth endpoint that issues a
-real session cookie) all work without Next. You only need the classic
-mode when touching what still renders inside Next — the SSR auth pages
-under `src/app/[variants]/(auth)/` (signin / OAuth consent UI), the SPA
-HTML template service, or Next middleware behavior.
+In day-to-day work, Hono-Lite is enough: the main SPA, the auth SPA, and
+the full API surface all work without Next. You only need the classic
+mode when touching the SPA HTML template service or Next middleware
+behavior.
 
 Typical Hono-Lite flow:
 
 ```bash
 bun run dev:docker      # Docker services (Postgres, Redis, RustFS, SearXNG)
 bun run dev:hono-lite   # Hono + Vite, no Next
-bun run dev:login       # open the local dev-login URL in your browser
-open http://localhost:9876
+open http://localhost:9876/signin
 ```
 
 The server package is also self-contained:

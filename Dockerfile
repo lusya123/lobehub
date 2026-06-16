@@ -83,13 +83,14 @@ RUN set -e && \
         echo 'canvas_binary_host_mirror=https://npmmirror.com/mirrors/canvas' >> .npmrc; \
     fi && \
     export COREPACK_NPM_REGISTRY=$(npm config get registry | sed 's/\/$//') && \
+    export PACKAGE_MANAGER=$(node -p "require('./package.json').packageManager") && \
     npm i -g corepack@latest && \
     corepack enable && \
-    corepack use $(sed -n 's/.*"packageManager": "\(.*\)".*/\1/p' package.json) && \
+    corepack use "${PACKAGE_MANAGER}" && \
     pnpm i && \
     mkdir -p /deps && \
     cd /deps && \
-    pnpm init && \
+    printf '{"private":true,"packageManager":"%s"}\n' "${PACKAGE_MANAGER}" > package.json && \
     pnpm add pg drizzle-orm
 
 COPY . .

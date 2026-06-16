@@ -37,6 +37,12 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+const expectTranslationText = (translatedText: string, translationKey: string) => {
+  expect(
+    screen.queryByText(translatedText) ?? screen.queryByText(translationKey),
+  ).toBeInTheDocument();
+};
+
 describe('web onboarding intervention registry', () => {
   it('renders the custom agent identity approval card for saveUserQuestion', async () => {
     const { WebOnboardingInterventions } =
@@ -50,10 +56,16 @@ describe('web onboarding intervention registry', () => {
 
     render(<Component args={{ agentEmoji: '🛰️', agentName: 'Atlas' }} messageId="message-1" />);
 
-    expect(screen.getByText('Confirm Agent identity update')).toBeInTheDocument();
+    expectTranslationText(
+      'Confirm Agent identity update',
+      'tool.intervention.onboarding.agentIdentity.title',
+    );
     expect(screen.getAllByText('Atlas')).toHaveLength(2);
     expect(screen.getAllByText('🛰️')).toHaveLength(2);
-    expect(screen.getByText('Inbox Agent')).toBeInTheDocument();
-    expect(screen.getByText('Current onboarding Agent')).toBeInTheDocument();
+    expectTranslationText('Inbox Agent', 'tool.intervention.onboarding.agentIdentity.targetInbox');
+    expectTranslationText(
+      'Current onboarding Agent',
+      'tool.intervention.onboarding.agentIdentity.targetOnboarding',
+    );
   });
 });

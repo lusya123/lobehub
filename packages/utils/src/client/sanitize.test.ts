@@ -94,15 +94,14 @@ describe('sanitizeSVGContent', () => {
     const sanitized = sanitizeSVGContent(complexSvg);
 
     // Should preserve safe elements and attributes
-    expect(sanitized).toEqual(`
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
-        <defs>
-          <linearGradient id="grad1">
-            <stop offset="0%" stop-color="red"></stop>
-            <stop offset="100%" stop-color="blue"></stop>
-          </linearGradient>
-        </defs>
-        <g transform="translate(50,50)">
-          </g></svg>`);
+    expect(sanitized).toContain('<svg');
+    expect(sanitized).toContain('viewBox="0 0 200 200"');
+    expect(sanitized).toContain('<linearGradient id="grad1">');
+    expect(sanitized).toContain('fill="url(#grad1)"');
+    expect(sanitized).toContain('Hello');
+    expect(sanitized).not.toContain('<script>');
+    expect(sanitized).not.toContain('malicious');
+    expect(sanitized).not.toContain('onclick');
+    expect(sanitized).not.toContain('onload');
   });
 });

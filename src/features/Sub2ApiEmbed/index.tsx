@@ -13,11 +13,11 @@
  * sections there.
  */
 
-export { default as EmbedStyleInjector } from './EmbedStyleInjector';
-export { useIsEmbed } from './useIsEmbed';
 export {
   SUB2API_EMBED_BODY_CLASS,
   SUB2API_EMBED_PARAM,
   SUB2API_EMBED_STORAGE_KEY,
   SUB2API_EMBED_VALUE,
 } from './constants';
+export { default as EmbedStyleInjector } from './EmbedStyleInjector';
+export { useIsEmbed } from './useIsEmbed';

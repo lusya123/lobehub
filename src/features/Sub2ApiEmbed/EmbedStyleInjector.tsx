@@ -1,9 +1,10 @@
 'use client';
 
+import './embed.css';
+
 import { memo, useEffect } from 'react';
 
 import { SUB2API_EMBED_BODY_CLASS } from './constants';
-import './embed.css';
 import { useIsEmbed } from './useIsEmbed';
 
 /**

@@ -10,6 +10,7 @@ import { useSignIn } from './useSignIn';
 
 const SignInPage = () => {
   const {
+    autoSignInRedirecting,
     businessElement,
     disableEmailPassword,
     email,
@@ -30,7 +31,9 @@ const SignInPage = () => {
 
   return (
     <Suspense fallback={<Loading debugId={'Signin'} />}>
-      {step === 'email' ? (
+      {autoSignInRedirecting ? (
+        <Loading debugId={'SigninAutoRedirect'} />
+      ) : step === 'email' ? (
         <SignInEmailStep
           businessElement={businessElement}
           disableEmailPassword={disableEmailPassword}

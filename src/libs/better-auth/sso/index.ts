@@ -107,7 +107,7 @@ export const initBetterAuthSSOProviders = () => {
     if (config) {
       // the generic oidc callback url is /api/auth/oauth2/callback/{providerId}
       // different from builtin providers' /api/auth/callback/{providerId}
-      config.redirectURI = `${appEnv.APP_URL}/api/auth/callback/${definition.id}`;
+      config.redirectURI = `${appEnv.APP_URL}/api/auth/oauth2/callback/${definition.id}`;
       genericOAuthProviders.push(config);
     }
   }

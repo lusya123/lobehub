@@ -170,6 +170,7 @@ export function defineConfig() {
     // backend api
     '/api/v1(.*)', // OpenAPI routes should use OpenAPI auth (API Key/OIDC), not BetterAuth session
     '/api/auth(.*)',
+    '/api/internal(.*)',
     '/api/webhooks(.*)',
     '/api/workflows(.*)',
     '/api/agent(.*)',

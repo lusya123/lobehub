@@ -26,6 +26,7 @@ const MessageFromUrl = () => {
   const agentId = context.agentId;
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
+  const activeAgentId = useAgentStore((s) => s.activeAgentId);
   const isAgentConfigLoading = useAgentStore(agentSelectors.isAgentConfigLoading);
   const [pendingDispatch, clearPendingDispatch] = useOverlayDispatchStore((s) => [
     s.pendingDispatch,

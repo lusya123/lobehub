@@ -21,6 +21,8 @@ import OverlaySnapshotPublisher from '@/features/Electron/ScreenCapture/OverlayS
 import TitleBar from '@/features/Electron/titlebar/TitleBar';
 import HotkeyHelperPanel from '@/features/HotkeyHelperPanel';
 import NavPanel from '@/features/NavPanel';
+// sub2api-embed: see src/features/Sub2ApiEmbed for the patch surface.
+import { EmbedStyleInjector, useIsEmbed } from '@/features/Sub2ApiEmbed';
 import { useFeedbackModal } from '@/hooks/useFeedbackModal';
 import { usePlatform } from '@/hooks/usePlatform';
 import { MarketAuthProvider } from '@/layout/AuthProvider/MarketAuth';
@@ -48,6 +50,9 @@ const Layout: FC = () => {
     isOpen: isFeedbackModalOpen,
     close: closeFeedbackModal,
   } = useFeedbackModal();
+  // sub2api-embed: when iframed by sub2api we suppress lobehub's outer
+  // chrome (left nav rail + desktop home overlay). Single read, one branch.
+  const isSub2ApiEmbed = useIsEmbed();
 
   return (
     <HotkeysProvider initiallyActiveScopes={[HotkeyScopeEnum.Global]}>
@@ -63,6 +68,7 @@ const Layout: FC = () => {
       {isDesktop && <AuthRequiredModal />}
 
       <Suspense fallback={null}>{isDesktop && <TitleBar />}</Suspense>
+      <EmbedStyleInjector />
       <DndContextWrapper>
         <Flexbox
           horizontal
@@ -76,12 +82,14 @@ const Layout: FC = () => {
                 : '100%'
           }
         >
-          <NavPanel />
+          {!isSub2ApiEmbed && <NavPanel />}
           <DesktopLayoutContainer>
             <MarketAuthProvider isDesktop={isDesktop}>
-              <DesktopHomeLayout>
-                <DesktopHome />
-              </DesktopHomeLayout>
+              {!isSub2ApiEmbed && (
+                <DesktopHomeLayout>
+                  <DesktopHome />
+                </DesktopHomeLayout>
+              )}
               <Suspense fallback={<Loading debugId="DesktopMainLayout > Outlet" />}>
                 <Outlet />
               </Suspense>

@@ -17,6 +17,7 @@ import { ProxyAgent, setGlobalDispatcher } from 'undici';
 import { businessEmailValidator } from '@/business/server/better-auth';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
+import { provisionSub2ApiFromAccount } from '@/libs/auth/sub2api-provision';
 import {
   getChangeEmailVerificationTemplate,
   getMagicLinkEmailTemplate,
@@ -201,6 +202,18 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
      * Ref: https://www.better-auth.com/docs/reference/options#databasehooks
      */
     databaseHooks: {
+      account: {
+        create: {
+          after: async (authAccount) => {
+            await provisionSub2ApiFromAccount(authAccount);
+          },
+        },
+        update: {
+          after: async (authAccount) => {
+            await provisionSub2ApiFromAccount(authAccount);
+          },
+        },
+      },
       user: {
         create: {
           after: async (user) => {

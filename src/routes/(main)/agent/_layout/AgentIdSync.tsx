@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { useAgentStore } from '@/store/agent';
-import { builtinAgentSelectors } from '@/store/agent/selectors';
+import { agentByIdSelectors, builtinAgentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { createStoreUpdater } from '@/store/utils/createStoreUpdater';
 
@@ -14,11 +14,16 @@ const AgentIdSync = () => {
   const useStoreUpdater = createStoreUpdater(useAgentStore);
   const useChatStoreUpdater = createStoreUpdater(useChatStore);
   const params = useParams<{ aid?: string; topicId?: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const searchParamsRef = useRef(searchParams);
   searchParamsRef.current = searchParams;
+  const lastAppliedModelPreferenceRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const pathAgentId = useMemo(() => {
+    const match = location.pathname?.match(/^\/agent\/([^#/?]+)/);
+    return match?.[1];
+  }, [location.pathname]);
 
   // Resolve builtin agent slug to real agent ID
   const isBuiltinSlug = !!params.aid && BUILTIN_SLUG_SET.has(params.aid);
@@ -45,6 +50,44 @@ const AgentIdSync = () => {
 
   useStoreUpdater('activeAgentId', activeId);
   useChatStoreUpdater('activeAgentId', activeId);
+
+  useEffect(() => {
+    const modelId = searchParams.get('modelId');
+    const provider = searchParams.get('provider');
+    const targetAgentId = pathAgentId || activeId;
+    if (
+      !modelId ||
+      !provider ||
+      !targetAgentId ||
+      BUILTIN_SLUG_SET.has(targetAgentId) ||
+      !targetAgentId.startsWith('agt_')
+    )
+      return;
+
+    const signature = `${targetAgentId}::${provider}::${modelId}`;
+    if (lastAppliedModelPreferenceRef.current === signature) return;
+    lastAppliedModelPreferenceRef.current = signature;
+
+    void (async () => {
+      const agentState = useAgentStore.getState();
+      const currentModel = agentByIdSelectors.getAgentModelById(targetAgentId)(agentState);
+      const currentProvider =
+        agentByIdSelectors.getAgentModelProviderById(targetAgentId)(agentState);
+      if (currentModel !== modelId || currentProvider !== provider) {
+        await agentState.updateAgentConfigById(targetAgentId, { model: modelId, provider });
+      }
+
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete('modelId');
+          next.delete('provider');
+          return next;
+        },
+        { replace: true },
+      );
+    })();
+  }, [activeId, pathAgentId, searchParams, setSearchParams]);
 
   // Reset activeTopicId when switching to a different agent
   // This prevents messages from being saved to the wrong topic bucket

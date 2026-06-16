@@ -1,7 +1,7 @@
 name: lobehub
 services:
   lobe:
-    image: lobehub/lobehub
+    image: ${LOBE_IMAGE:-lobehub/lobehub}
     container_name: lobehub
     ports:
       - '${LOBE_PORT}:3210'

@@ -7,7 +7,6 @@ services:
     ports:
       - '${RUSTFS_PORT}:9000' # RustFS API
       - '9001:9001' # RustFS Console
-      - '${LOBE_PORT}:3210' # LobeChat
     command: tail -f /dev/null
     networks:
       - lobe-network
@@ -15,10 +14,15 @@ services:
       - .env
 
   postgresql:
-    image: paradedb/paradedb:latest-pg17
+    # sub2api fork: swapped from paradedb/paradedb (BM25 full-text search) to
+    # plain pgvector because paradedb's image pull is unreliable from China
+    # mirrors. Cost: BM25 search across agents/topics/messages returns nothing
+    # in lobehub's search panel. Core chat is unaffected. Switch back to
+    # paradedb/paradedb:latest-pg17 once the network can pull it.
+    image: docker.1ms.run/pgvector/pgvector:pg17
     container_name: lobe-postgres
     ports:
-      - '5432:5432'
+      - '${POSTGRES_PORT:-5432}:5432'
     volumes:
       - './data:/var/lib/postgresql/data'
     environment:
@@ -39,7 +43,7 @@ services:
     image: redis:7-alpine
     container_name: lobe-redis
     ports:
-      - '6379:6379'
+      - '${REDIS_PORT:-6379}:6379'
     command: redis-server --save 60 1000 --appendonly yes
     volumes:
       - 'redis_data:/data'
@@ -82,7 +86,7 @@ services:
     entrypoint: /bin/sh
     command: -c '
         set -eux;
-        echo "S3_ACCESS_KEY=${RUSTFS_ACCESS_KEY}, S3_SECRET_KEY=${RUSTFS_SECRET_KEY}";
+        echo "Configuring RustFS bucket policy";
         mc --version;
         mc alias set rustfs "http://network-service:9000" "${RUSTFS_ACCESS_KEY}" "${RUSTFS_SECRET_KEY}";
         mc ls rustfs || true;

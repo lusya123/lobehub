@@ -3,6 +3,7 @@ import { type NextConfig } from 'next';
 import { type Header, type Redirect } from 'next/dist/lib/load-custom-routes';
 
 interface CustomNextConfig {
+  allowedDevOrigins?: NextConfig['allowedDevOrigins'];
   experimental?: NextConfig['experimental'];
   headers?: Header[];
   outputFileTracingExcludes?: NextConfig['outputFileTracingExcludes'];
@@ -60,6 +61,7 @@ export function defineConfig(config: CustomNextConfig) {
 
   const nextConfig: NextConfig = {
     ...(isStandaloneMode ? standaloneConfig : {}),
+    allowedDevOrigins: ['127.0.0.1', 'localhost', ...(config.allowedDevOrigins || [])],
     assetPrefix,
 
     compiler: {

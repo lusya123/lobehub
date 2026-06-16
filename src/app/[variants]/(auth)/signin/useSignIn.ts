@@ -1,7 +1,7 @@
 import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { Form } from 'antd';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { CheckUserResponseData } from '@/app/(backend)/api/auth/check-user/route';
@@ -45,6 +45,8 @@ export const useSignIn = () => {
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [isSocialOnly, setIsSocialOnly] = useState(false);
+  const [autoSignInRedirecting, setAutoSignInRedirecting] = useState(false);
+  const autoSignInStarted = useRef(false);
   const [lastAuthProvider] = useState(() => {
     try {
       return localStorage.getItem(LAST_AUTH_PROVIDER_KEY);
@@ -302,7 +304,18 @@ export const useSignIn = () => {
       })
     : resolvedProviders;
 
+  useEffect(() => {
+    if (!serverConfigInit || autoSignInStarted.current) return;
+    if (!disableEmailPassword || sortedProviders.length !== 1) return;
+    if (normalizeProviderId(sortedProviders[0]) !== 'generic-oidc') return;
+
+    autoSignInStarted.current = true;
+    setAutoSignInRedirecting(true);
+    void handleSocialSignIn(sortedProviders[0]).finally(() => setAutoSignInRedirecting(false));
+  }, [disableEmailPassword, serverConfigInit, sortedProviders]);
+
   return {
+    autoSignInRedirecting,
     businessElement,
     disableEmailPassword,
     email,

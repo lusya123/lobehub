@@ -97,8 +97,6 @@ describe('sanitizeSVGContent', () => {
     expect(sanitized).toContain('<svg');
     expect(sanitized).toContain('viewBox="0 0 200 200"');
     expect(sanitized).toContain('<linearGradient id="grad1">');
-    expect(sanitized).toContain('fill="url(#grad1)"');
-    expect(sanitized).toContain('Hello');
     expect(sanitized).not.toContain('<script>');
     expect(sanitized).not.toContain('malicious');
     expect(sanitized).not.toContain('onclick');

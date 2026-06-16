@@ -1,0 +1,88 @@
+/**
+ * Sub2API embed mode visual overrides.
+ *
+ * Applied only when <body> carries the `.sub2api-embed` class (set by
+ * EmbedStyleInjector). Every selector is scoped under `.sub2api-embed` so
+ * none of these styles leak into the normal LobeChat experience.
+ *
+ * Design goals (kept ruthlessly minimal so upstream merges stay clean):
+ *   1. Hide LobeChat's own application chrome — the left nav panel, the
+ *      desktop title bar, the welcome/home overlay. The outer sub2api shell
+ *      already provides those.
+ *   2. Bridge color tokens to the warm-white (#FAFAF9) palette the rest of
+ *      sub2api uses, so the iframe doesn't read as a foreign window.
+ *   3. Make the chat surface edge-to-edge inside the iframe so the user feels
+ *      like they're inside a single application, not a browser-in-a-browser.
+ */
+
+body.sub2api-embed {
+  /* Match sub2api's warm-white shell so the iframe seam disappears. */
+  background: #fafaf9 !important;
+}
+
+body.sub2api-embed[data-prefers-color-scheme='dark'],
+body.sub2api-embed.dark {
+  background: #0f1115 !important;
+}
+
+/* --------------------------------------------------------------- *
+ * Hide outer LobeChat chrome.
+ *
+ * NavPanel renders the global left rail (chat / files / market / settings).
+ * It targets `aside[data-nav-rail]` in upstream; we also hide by stable test
+ * ids and Ant menu wrappers as a safety net.
+ * --------------------------------------------------------------- */
+body.sub2api-embed [data-nav-rail],
+body.sub2api-embed [data-testid='nav-rail'],
+body.sub2api-embed [data-testid='nav-panel'],
+body.sub2api-embed [data-testid='SideNav'],
+body.sub2api-embed [data-testid='side-nav'] {
+  display: none !important;
+}
+
+/* Hide the standalone desktop home overlay if it renders alongside Outlet. */
+body.sub2api-embed [data-testid='desktop-home'],
+body.sub2api-embed [data-desktop-home] {
+  display: none !important;
+}
+
+/* Suppress cloud upsell + telemetry banners that distract from chat. */
+body.sub2api-embed [data-testid='cloud-banner'],
+body.sub2api-embed [data-testid='telemetry-notification'],
+body.sub2api-embed [data-testid='changelog-modal'] {
+  display: none !important;
+}
+
+/* The lobe-ui Flexbox layout uses horizontal flex with NavPanel as the first
+ * sibling. With NavPanel display:none the main container should expand to
+ * full width — make that explicit so any reserved-width math stops fighting. */
+body.sub2api-embed [data-main-container] {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+/* --------------------------------------------------------------- *
+ * Sign-in screen: blank it out, AutoSignIn takes care of redirect.
+ * --------------------------------------------------------------- */
+body.sub2api-embed [data-testid='signin-page'],
+body.sub2api-embed [data-testid='sso-providers-list'] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------- *
+ * Reduce visual weight inside the chat surface.
+ * --------------------------------------------------------------- */
+body.sub2api-embed {
+  --sub2api-radius: 0;
+}
+
+/* Edge-to-edge top corners; sub2api shell already provides outer rounding. */
+body.sub2api-embed main {
+  border-radius: 0 !important;
+}
+
+/* Hairline only — drop heavy outer shadows that scream "I'm a card". */
+body.sub2api-embed [data-card-shadow] {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04) !important;
+}

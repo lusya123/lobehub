@@ -5,7 +5,7 @@ on:
     branches:
       - canary
       - main
-      - 'codex/**'
+      - 'deploy/**'
   workflow_dispatch:
     inputs:
       deploy:

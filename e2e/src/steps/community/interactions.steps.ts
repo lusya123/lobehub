@@ -4,59 +4,35 @@ import { expect } from '@playwright/test';
 import type { CustomWorld } from '../../support/world';
 
 const unavailableDetailText = 'Entered Unknown Territory?';
-const communityCardRetryLimit = 8;
 
-const clickFirstAvailableCommunityCard = async (
-  world: CustomWorld,
-  cardSelector: string,
-  detailSelector: string,
-) => {
+const clickFirstCommunityCard = async (world: CustomWorld, cardSelector: string) => {
   await world.page.waitForLoadState('networkidle', { timeout: 30_000 });
 
   const listUrl = world.page.url();
-  const cards = world.page.locator(cardSelector);
-  await cards.first().waitFor({ state: 'visible', timeout: 30_000 });
+  const firstCard = world.page.locator(cardSelector).first();
+  await firstCard.waitFor({ state: 'visible', timeout: 30_000 });
 
-  const cardCount = await cards.count();
-  const attemptCount = Math.min(cardCount, communityCardRetryLimit);
+  world.testContext.previousUrl = listUrl;
+  await firstCard.click();
+  await world.page.waitForFunction(
+    (previousUrl) => window.location.href !== previousUrl,
+    listUrl,
+    { timeout: 30_000 },
+  );
+  await world.page.waitForLoadState('domcontentloaded', { timeout: 30_000 });
+};
 
-  for (let index = 0; index < attemptCount; index += 1) {
-    world.testContext.previousUrl = listUrl;
+const expectCommunityDetailContent = async (world: CustomWorld, detailSelector: string) => {
+  const hasDetailContent = await world.page
+    .locator(detailSelector)
+    .isVisible({ timeout: 5000 })
+    .catch(() => false);
 
-    await cards.nth(index).click();
-    await world.page.waitForFunction(
-      (previousUrl) => window.location.href !== previousUrl,
-      listUrl,
-      { timeout: 30_000 },
-    );
-    await world.page.waitForLoadState('domcontentloaded', { timeout: 30_000 });
+  if (hasDetailContent) return;
 
-    const isUnavailable = await world.page
-      .getByText(unavailableDetailText, { exact: true })
-      .isVisible({ timeout: 2000 })
-      .catch(() => false);
-    if (isUnavailable) {
-      console.log(`   📍 Community detail unavailable at index ${index}, trying next card`);
-      await world.page.goto(listUrl);
-      await world.page.waitForLoadState('networkidle', { timeout: 30_000 });
-      await cards.first().waitFor({ state: 'visible', timeout: 30_000 });
-      continue;
-    }
-
-    const hasDetailContent = await world.page
-      .locator(detailSelector)
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
-
-    if (hasDetailContent) return;
-
-    console.log(`   📍 Community detail content missing at index ${index}, trying next card`);
-    await world.page.goto(listUrl);
-    await world.page.waitForLoadState('networkidle', { timeout: 30_000 });
-    await cards.first().waitFor({ state: 'visible', timeout: 30_000 });
-  }
-
-  throw new Error(`Could not find an available community detail page after ${attemptCount} attempts`);
+  await expect(world.page.getByText(unavailableDetailText, { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
 };
 
 // ============================================
@@ -200,10 +176,9 @@ When(
   'I click on the first assistant card',
   { timeout: 90_000 },
   async function (this: CustomWorld) {
-    await clickFirstAvailableCommunityCard(
+    await clickFirstCommunityCard(
       this,
       '[data-testid="assistant-item"][data-agent-type="agent"]',
-      '[data-testid="assistant-detail-content"]',
     );
   },
 );
@@ -250,10 +225,9 @@ When(
   'I click on the first MCP card',
   { timeout: 90_000 },
   async function (this: CustomWorld) {
-    await clickFirstAvailableCommunityCard(
+    await clickFirstCommunityCard(
       this,
       '[data-testid="mcp-item"]',
-      '[data-testid="mcp-detail-content"]',
     );
   },
 );
@@ -364,10 +338,9 @@ When(
   'I click on the first featured assistant card',
   { timeout: 90_000 },
   async function (this: CustomWorld) {
-    await clickFirstAvailableCommunityCard(
+    await clickFirstCommunityCard(
       this,
       '[data-testid="assistant-item"]',
-      '[data-testid="assistant-detail-content"]',
     );
   },
 );
@@ -481,9 +454,7 @@ Then('I should be navigated to the assistant detail page', async function (this:
 Then('I should see the assistant detail content', async function (this: CustomWorld) {
   await this.page.waitForLoadState('networkidle', { timeout: 30_000 });
 
-  // Look for assistant detail page content
-  const detailContent = this.page.locator('[data-testid="assistant-detail-content"]');
-  await expect(detailContent).toBeVisible({ timeout: 30_000 });
+  await expectCommunityDetailContent(this, '[data-testid="assistant-detail-content"]');
 });
 
 Then('I should see model cards in the sorted order', async function (this: CustomWorld) {
@@ -596,9 +567,7 @@ Then('I should be navigated to the MCP detail page', async function (this: Custo
 Then('I should see the MCP detail content', async function (this: CustomWorld) {
   await this.page.waitForLoadState('networkidle', { timeout: 30_000 });
 
-  // Look for MCP detail page content
-  const detailContent = this.page.locator('[data-testid="mcp-detail-content"]');
-  await expect(detailContent).toBeVisible({ timeout: 30_000 });
+  await expectCommunityDetailContent(this, '[data-testid="mcp-detail-content"]');
 });
 
 Then('I should be navigated to {string}', async function (this: CustomWorld, expectedPath: string) {

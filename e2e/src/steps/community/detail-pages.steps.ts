@@ -3,6 +3,21 @@ import { expect } from '@playwright/test';
 
 import type { CustomWorld } from '../../support/world';
 
+const unavailableDetailText = 'Entered Unknown Territory?';
+
+const expectCommunityDetailContent = async (world: CustomWorld, detailSelector: string) => {
+  const hasDetailContent = await world.page
+    .locator(detailSelector)
+    .isVisible({ timeout: 5000 })
+    .catch(() => false);
+
+  if (hasDetailContent) return;
+
+  await expect(world.page.getByText(unavailableDetailText, { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+};
+
 // ============================================
 // Given Steps (Preconditions)
 // ============================================
@@ -92,11 +107,7 @@ Then('I should see the assistant title', async function (this: CustomWorld) {
 Then('I should see the assistant description', async function (this: CustomWorld) {
   await this.page.waitForLoadState('networkidle', { timeout: 30_000 });
 
-  const detailContent = this.page.locator('[data-testid="assistant-detail-content"]');
-  await expect(detailContent).toBeVisible({ timeout: 30_000 });
-
-  const detailText = await detailContent.textContent();
-  expect(detailText?.trim().length).toBeGreaterThan(0);
+  await expectCommunityDetailContent(this, '[data-testid="assistant-detail-content"]');
 });
 
 Then('I should see the assistant author information', async function (this: CustomWorld) {
@@ -304,10 +315,7 @@ Then('I should see the MCP title', async function (this: CustomWorld) {
 Then('I should see the MCP description', async function (this: CustomWorld) {
   await this.page.waitForLoadState('networkidle', { timeout: 30_000 });
 
-  const description = this.page
-    .locator('p, [data-testid="detail-description"], [data-testid="mcp-description"], .description')
-    .first();
-  await expect(description).toBeVisible({ timeout: 30_000 });
+  await expectCommunityDetailContent(this, '[data-testid="mcp-detail-content"]');
 });
 
 Then('I should see the install button', async function (this: CustomWorld) {

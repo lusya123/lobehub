@@ -1,7 +1,7 @@
 import { Given, Then, When } from '@cucumber/cucumber';
 import { expect } from '@playwright/test';
 
-import { CustomWorld } from '../../support/world';
+import type { CustomWorld } from '../../support/world';
 
 // ============================================
 // Given Steps (Preconditions)
@@ -92,13 +92,11 @@ Then('I should see the assistant title', async function (this: CustomWorld) {
 Then('I should see the assistant description', async function (this: CustomWorld) {
   await this.page.waitForLoadState('networkidle', { timeout: 30_000 });
 
-  // Look for description element
-  const description = this.page
-    .locator(
-      'p, [data-testid="detail-description"], [data-testid="assistant-description"], .description',
-    )
-    .first();
-  await expect(description).toBeVisible({ timeout: 30_000 });
+  const detailContent = this.page.locator('[data-testid="assistant-detail-content"]');
+  await expect(detailContent).toBeVisible({ timeout: 30_000 });
+
+  const detailText = await detailContent.textContent();
+  expect(detailText?.trim().length).toBeGreaterThan(0);
 });
 
 Then('I should see the assistant author information', async function (this: CustomWorld) {

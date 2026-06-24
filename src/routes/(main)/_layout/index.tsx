@@ -23,9 +23,9 @@ import TabCacheBridges from '@/features/Electron/titlebar/TabBar/TabCacheBridges
 import TitleBar from '@/features/Electron/titlebar/TitleBar';
 import HotkeyHelperPanel from '@/features/HotkeyHelperPanel';
 import NavPanel from '@/features/NavPanel';
+import { RouteMetaBridge } from '@/features/RouteMeta';
 // sub2api-embed: see src/features/Sub2ApiEmbed for the patch surface.
 import { EmbedStyleInjector, useIsEmbed } from '@/features/Sub2ApiEmbed';
-import { RouteMetaBridge } from '@/features/RouteMeta';
 import { usePlatform } from '@/hooks/usePlatform';
 import CmdkLazy from '@/layout/GlobalProvider/CmdkLazy';
 import dynamic from '@/libs/next/dynamic';

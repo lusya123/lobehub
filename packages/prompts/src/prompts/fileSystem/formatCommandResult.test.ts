@@ -4,22 +4,24 @@ import { formatCommandResult } from './formatCommandResult';
 
 describe('formatCommandResult', () => {
   it('should format successful command without output', () => {
-    const result = formatCommandResult({ success: true });
+    const result = formatCommandResult({ exitCode: 0, success: true });
     expect(result).toMatchInlineSnapshot(`"Command completed successfully."`);
   });
 
-  it('should format successful background command', () => {
+  it('should format still-running command', () => {
     const result = formatCommandResult({
       shellId: 'shell-123',
       success: true,
     });
-    expect(result).toMatchInlineSnapshot(
-      `"Command started in background with shell_id: shell-123"`,
-    );
+    expect(result).toMatchInlineSnapshot(`
+      "Command is still running after the wait window.
+      shell_id: shell-123"
+    `);
   });
 
   it('should format successful command with stdout', () => {
     const result = formatCommandResult({
+      exitCode: 0,
       stdout: 'Hello World',
       success: true,
     });
@@ -33,6 +35,7 @@ describe('formatCommandResult', () => {
 
   it('should format successful command with stderr', () => {
     const result = formatCommandResult({
+      exitCode: 0,
       stderr: 'Warning: deprecated',
       success: true,
     });
@@ -44,15 +47,34 @@ describe('formatCommandResult', () => {
     `);
   });
 
-  it('should format successful command with exit code', () => {
+  it('should suppress the Exit code line when exitCode is 0', () => {
     const result = formatCommandResult({
       exitCode: 0,
       success: true,
     });
-    expect(result).toMatchInlineSnapshot(`
-      "Command completed successfully.
+    expect(result).toMatchInlineSnapshot(`"Command completed successfully."`);
+  });
 
-      Exit code: 0"
+  it('should treat shell id with exitCode 0 as completed', () => {
+    const result = formatCommandResult({
+      exitCode: 0,
+      shellId: 'shell-123',
+      success: true,
+    });
+    expect(result).toMatchInlineSnapshot(`"Command completed successfully."`);
+  });
+
+  it('should treat a non-zero exit code as failure even when envelope success is true', () => {
+    const result = formatCommandResult({
+      exitCode: 137,
+      stdout: 'partial output',
+      success: true,
+    });
+    expect(result).toMatchInlineSnapshot(`
+      "Command failed with exit code 137
+
+      Output:
+      partial output"
     `);
   });
 
@@ -73,15 +95,13 @@ describe('formatCommandResult', () => {
       success: false,
     });
     expect(result).toMatchInlineSnapshot(`
-      "Command failed: Command error
+      "Command failed with exit code 1: Command error
 
       Output:
       Some output
 
       Stderr:
-      Error occurred
-
-      Exit code: 1"
+      Error occurred"
     `);
   });
 });

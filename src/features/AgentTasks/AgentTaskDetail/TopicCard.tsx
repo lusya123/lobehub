@@ -1,5 +1,4 @@
 import type { TaskDetailActivity } from '@lobechat/types';
-import { formatActivityTime } from '@lobechat/utils/time';
 import {
   ActionIcon,
   Avatar,
@@ -10,12 +9,14 @@ import {
   stopPropagation,
   Text,
 } from '@lobehub/ui';
+import { confirmModal } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
-import { CircleDot, Copy, ExternalLink, MoreHorizontal } from 'lucide-react';
+import { CircleDot, CircleStop, Copy, ExternalLink, MoreHorizontal } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AgentProfilePopup from '@/features/AgentProfileCard/AgentProfilePopup';
+import { useActivityTime } from '@/hooks/useActivityTime';
 import { useTaskStore } from '@/store/task';
 
 import { styles } from '../shared/style';
@@ -36,8 +37,8 @@ interface TopicCardProps {
 
 const TopicCard = memo<TopicCardProps>(({ activity }) => {
   const { t } = useTranslation('chat');
-  const { t: tDiscover } = useTranslation('discover');
   const openTopicDrawer = useTaskStore((s) => s.openTopicDrawer);
+  const cancelTopic = useTaskStore((s) => s.cancelTopic);
   const isRunning = activity.status === 'running';
 
   const finalDuration =
@@ -69,10 +70,24 @@ const TopicCard = memo<TopicCardProps>(({ activity }) => {
     if (activity.operationId) void navigator.clipboard.writeText(activity.operationId);
   }, [activity.operationId]);
 
-  const { text: startedAt, title: startedAtTitle } = formatActivityTime(activity.time, {
-    formatOtherYear: tDiscover('time.formatOtherYear'),
-    formatThisYear: tDiscover('time.formatThisYear'),
-  });
+  const handleStop = useCallback(() => {
+    if (!activity.id) return;
+    const topicId = activity.id;
+    confirmModal({
+      cancelText: t('cancel', { ns: 'common' }),
+      content: t('taskDetail.topicMenu.stopConfirm.content', {
+        defaultValue:
+          'The current run will be canceled. Generated messages are kept and you can re-run the task later.',
+      }),
+      okText: t('taskDetail.topicMenu.stop', { defaultValue: 'Stop Run' }),
+      onOk: async () => {
+        await cancelTopic(topicId);
+      },
+      title: t('taskDetail.topicMenu.stopConfirm.title', { defaultValue: 'Stop Run?' }),
+    });
+  }, [activity.id, cancelTopic, t]);
+
+  const { text: startedAt, title: startedAtTitle } = useActivityTime(activity.time);
   const durationText = isRunning
     ? formatDuration(elapsed)
     : finalDuration != null && finalDuration >= 0
@@ -80,24 +95,36 @@ const TopicCard = memo<TopicCardProps>(({ activity }) => {
       : '';
 
   const menuItems: DropdownItem[] = [
+    ...(isRunning && activity.id
+      ? [
+          {
+            danger: true,
+            icon: CircleStop,
+            key: 'stop',
+            label: t('taskDetail.topicMenu.stop', { defaultValue: 'Stop Run' }),
+            onClick: handleStop,
+          },
+          { type: 'divider' as const },
+        ]
+      : []),
     {
       icon: ExternalLink,
       key: 'open',
-      label: t('taskDetail.topicMenu.open', { defaultValue: 'Open run' }),
+      label: t('taskDetail.topicMenu.open', { defaultValue: 'Open Run' }),
       onClick: handleOpen,
     },
     {
       disabled: !activity.id,
       icon: Copy,
       key: 'copy',
-      label: t('taskDetail.topicMenu.copyId', { defaultValue: 'Copy topic ID' }),
+      label: t('taskDetail.topicMenu.copyId', { defaultValue: 'Copy Topic ID' }),
       onClick: handleCopyId,
     },
     {
       disabled: !activity.operationId,
       icon: Copy,
       key: 'copyOperationId',
-      label: t('taskDetail.topicMenu.copyOperationId', { defaultValue: 'Copy operation ID' }),
+      label: t('taskDetail.topicMenu.copyOperationId', { defaultValue: 'Copy Operation ID' }),
       onClick: handleCopyOperationId,
     },
   ];

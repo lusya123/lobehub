@@ -2,14 +2,22 @@ import type { ChatModelCard } from '@lobechat/types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import debug from 'debug';
-import type { AiModelType } from 'model-bank';
+import type { AiFullModelCard, AiModelType } from 'model-bank';
 import { LOBE_DEFAULT_MODEL_LIST } from 'model-bank';
 import type { ClientOptions } from 'openai';
 import OpenAI from 'openai';
 import type { Stream } from 'openai/streaming';
 
-import { responsesAPIModels } from '../../const/models';
+import { ErrorClassifier } from '../../errors';
+import {
+  isGPT5ProResponsesModel,
+  isResponsesAPIModel,
+  supportsGPT5ResponsesReasoningEffortNone,
+} from '../../providers/openai/openaiModelId';
 import type {
+  ASROptions,
+  ASRPayload,
+  ASRResponse,
   ChatCompletionErrorPayload,
   ChatCompletionTool,
   ChatMethodOptions,
@@ -39,11 +47,13 @@ import { desensitizeUrl } from '../../utils/desensitizeUrl';
 import { getModelPropertyWithFallback } from '../../utils/getFallbackModelProperty';
 import { getModelPricing } from '../../utils/getModelPricing';
 import { handleOpenAIError } from '../../utils/handleOpenAIError';
-import { isAccountDeactivatedError } from '../../utils/isAccountDeactivatedError';
-import { isExceededContextWindowError } from '../../utils/isExceededContextWindowError';
-import { isInsufficientQuotaError } from '../../utils/isInsufficientQuotaError';
-import { isQuotaLimitError } from '../../utils/isQuotaLimitError';
+import { detectModelProvider } from '../../utils/modelParse';
 import { postProcessModelList } from '../../utils/postProcessModelList';
+import {
+  assertContextWithinWindow,
+  type AssertContextWithinWindowOptions,
+  ContextExceededPreFlightError,
+} from '../../utils/resolveSafeMaxTokens';
 import { StreamingResponse } from '../../utils/response';
 import type { LobeRuntimeAI } from '../BaseAI';
 import { convertOpenAIMessages, convertOpenAIResponseInputs } from '../contextBuilders/openai';
@@ -60,6 +70,22 @@ export type { PollVideoStatusResult };
 export * from './createVideo';
 export * from './nonStreamToStream';
 
+/**
+ * Detect provider 400/422 errors that reject `response_format: { type: 'json_schema' }`.
+ * Known message variants from the DeepSeek family (official API and gateways proxying it):
+ * - `This response_format type is unavailable now`
+ * - `response_format.type \`json_schema\` is unavailable now`
+ */
+export const isResponseFormatUnsupportedError = (error: unknown): boolean => {
+  const err = error as { error?: { message?: unknown }; message?: unknown };
+  const message = [err?.message, err?.error?.message]
+    .filter((value): value is string => typeof value === 'string')
+    .join('\n');
+  if (!message) return false;
+
+  return /(?:response_format|json_schema)[^]*?(?:unavailable|not +support)/i.test(message);
+};
+
 // the model contains the following keywords is not a chat model, so we should filter them out
 export const CHAT_MODELS_BLOCK_LIST = [
   'embedding',
@@ -74,9 +100,50 @@ export const CHAT_MODELS_BLOCK_LIST = [
 ];
 
 type ConstructorOptions<T extends Record<string, any> = any> = ClientOptions & T;
+type OpenAIExtraParams = { prompt_cache_key?: string; safety_identifier?: string };
+type ChatCompletionCreateParamsWithPromptCacheKey = Omit<
+  OpenAI.ChatCompletionCreateParamsNonStreaming,
+  'reasoning_effort'
+> &
+  Pick<OpenAIExtraParams, 'prompt_cache_key'> &
+  Pick<GenerateObjectPayload, 'reasoning_effort'>;
+type GenerateObjectReasoningParams = Pick<GenerateObjectPayload, 'reasoning_effort' | 'thinking'>;
+type ResponseCreateParamsWithPromptCacheKey = (
+  | OpenAI.Responses.ResponseCreateParamsStreaming
+  | OpenAI.Responses.ResponseCreateParams
+) &
+  OpenAIExtraParams;
 export type CreateImageOptions = Omit<ClientOptions, 'apiKey'> & {
   apiKey: string;
   provider: string;
+};
+
+const getGenerateObjectReasoningParams = ({
+  reasoning_effort,
+  thinking,
+}: GenerateObjectReasoningParams) => ({
+  // `thinking` is a Lobe runtime abstraction, not a generic OpenAI-compatible API field.
+  // Use it here only to suppress `reasoning_effort`; providers that support thinking
+  // must translate it via `generateObject.handlePayload`.
+  ...(reasoning_effort && thinking?.type !== 'disabled' ? { reasoning_effort } : {}),
+});
+
+const getGenerateObjectResponsesReasoningParams = ({
+  model,
+  reasoning_effort,
+  thinking,
+}: GenerateObjectReasoningParams & { model: string }) => {
+  if (isGPT5ProResponsesModel(model)) {
+    return reasoning_effort && reasoning_effort !== 'max' ? { reasoning: { effort: 'high' } } : {};
+  }
+
+  if (thinking?.type === 'disabled') {
+    return supportsGPT5ResponsesReasoningEffortNone(model) ? { reasoning: { effort: 'none' } } : {};
+  }
+
+  return reasoning_effort && reasoning_effort !== 'max'
+    ? { reasoning: { effort: reasoning_effort } }
+    : {};
 };
 
 export type CreateVideoOptions = Omit<ClientOptions, 'apiKey'> & {
@@ -97,6 +164,23 @@ export interface OpenAICompatibleFactoryOptions<T extends Record<string, any> = 
   apiKey?: string;
   baseURL?: string;
   chatCompletion?: {
+    /**
+     * When set, the factory runs a pre-flight token estimate against the
+     * provided model list before dispatching to upstream. If the estimated
+     * prompt tokens strictly exceed the model's context window, the
+     * request is aborted with a structured `ExceededContextWindow` error
+     * — see .
+     *
+     * This is for providers like NVIDIA / DeepSeek where the harness does
+     * not cap `max_tokens` itself but we still want to fail fast on doomed
+     * requests instead of round-tripping to the upstream just to get a
+     * 400 back. Providers that manage `max_tokens` themselves (e.g.
+     * MiniMax via `resolveSafeMaxTokens`) still benefit because the
+     * factory's centralised error handler converts the same error class.
+     */
+    contextPreFlight?: AssertContextWithinWindowOptions & {
+      models: AiFullModelCard[];
+    };
     excludeUsage?: boolean;
     forceImageBase64?: boolean;
     forceVideoBase64?: boolean;
@@ -157,6 +241,14 @@ export interface OpenAICompatibleFactoryOptions<T extends Record<string, any> = 
      * Transform schema before sending to the provider (e.g., filter unsupported properties)
      */
     handleSchema?: (schema: any) => any;
+    /**
+     * Transform Chat Completions payload before sending generateObject requests to the provider.
+     */
+    handlePayload?: (
+      payload: GenerateObjectPayload,
+      requestPayload: ChatCompletionCreateParamsWithPromptCacheKey,
+      options: ConstructorOptions<T>,
+    ) => ChatCompletionCreateParamsWithPromptCacheKey;
     /**
      * If true, route generateObject requests to Responses API path directly
      */
@@ -280,10 +372,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       const log = debug(`${this.logPrefix}:shouldUseResponsesAPI`);
 
-      // Priority 0: Check built-in responsesAPIModels FIRST (highest priority)
-      // These models MUST use Responses API regardless of user settings
-      if (model && responsesAPIModels.has(model)) {
-        log('using Responses API: model %s in built-in responsesAPIModels (forced)', model);
+      // Priority 0: Check built-in Responses API model rules FIRST (highest priority)
+      // These models MUST use Responses API regardless of user settings.
+      if (model && isResponsesAPIModel(model)) {
+        log('using Responses API: model %s matches built-in Responses API model rules', model);
         return true;
       }
 
@@ -346,6 +438,36 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       return false;
     }
 
+    private resolvePromptCacheKey(model?: string, user?: string) {
+      if (!user) return;
+
+      // Keep the default key at {userId}:{model}; {agentId} can be added later if a narrower cache bucket is needed.
+      if (model?.startsWith('gpt-') || /^o\d/.test(model || '') || model === 'chat-latest') {
+        return `lobe:${user}:${model}`;
+      }
+    }
+
+    private resolvePromptCacheKeyParams(
+      model?: string,
+      user?: string,
+      existingPromptCacheKey?: string,
+    ) {
+      if (existingPromptCacheKey !== undefined) return {};
+
+      const promptCacheKey = this.resolvePromptCacheKey(model, user);
+
+      return promptCacheKey ? { prompt_cache_key: promptCacheKey } : {};
+    }
+
+    private handleGenerateObjectPayload(
+      payload: GenerateObjectPayload,
+      requestPayload: ChatCompletionCreateParamsWithPromptCacheKey,
+    ) {
+      return generateObjectConfig?.handlePayload
+        ? generateObjectConfig.handlePayload(payload, requestPayload, this._options)
+        : requestPayload;
+    }
+
     async chat({ responseMode, ...payload }: ChatStreamPayload, options?: ChatMethodOptions) {
       try {
         const log = debug(`${this.logPrefix}:chat`);
@@ -377,6 +499,14 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
         if (shouldUseResponses) {
           processedPayload = { ...payload, apiMode: 'responses' } as any;
+        }
+
+        // Pre-flight: abort doomed requests before invoking handlePayload so
+        // providers don't waste a round-trip to upstream just to get a 400.
+        // See .
+        if (chatCompletion?.contextPreFlight) {
+          const { models: preFlightModels, ...preFlightOptions } = chatCompletion.contextPreFlight;
+          assertContextWithinWindow(processedPayload, preFlightModels, preFlightOptions);
         }
 
         // Then perform factory-level processing
@@ -446,7 +576,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         const messages = await convertOpenAIMessages(postPayload.messages, {
           forceImageBase64: chatCompletion?.forceImageBase64,
           forceVideoBase64: chatCompletion?.forceVideoBase64,
+          model: postPayload.model,
         });
+        const includeUsageRequested = Boolean(postPayload.stream && !chatCompletion?.excludeUsage);
 
         let response: Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
 
@@ -454,6 +586,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           bizErrorTypeTransformer: chatCompletion?.handleStreamBizErrorType,
           callbacks: options?.callback,
           payload: {
+            apiMode: 'chat_completions',
+            includeUsageRequested,
             model: payload.model,
             pricing: await getModelPricing(payload.model, this.id),
             provider: this.id,
@@ -465,29 +599,42 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           // Apply sampling sanitization to processedPayload for the custom client path.
           // We use processedPayload (ChatStreamPayload type) here because
           // createChatCompletionStream expects ChatStreamPayload, not the OpenAI SDK format.
+          // Strip LobeHub-internal fields that should never reach downstream APIs.
+          const {
+            apiMode: _apiMode,
+            preserveThinking: _preserveThinking,
+            ...cleanProcessedPayload
+          } = processedPayload as any;
           response = customClient.createChatCompletionStream(
             this.client,
             {
-              ...processedPayload,
-              ...resolveModelSamplingParameters(processedPayload.model, processedPayload, {
-                normalizeTemperature: false,
-                preferTemperature: true,
-              }),
+              ...cleanProcessedPayload,
+              ...resolveModelSamplingParameters(
+                cleanProcessedPayload.model,
+                cleanProcessedPayload,
+                {
+                  normalizeTemperature: false,
+                  preferTemperature: true,
+                },
+              ),
             },
             this,
           ) as any;
         } else {
-          // Remove internal apiMode parameter before sending to API
-
-          const { apiMode: _, ...cleanedPayload } = postPayload as any;
+          // Remove LobeHub-internal fields before sending to downstream API.
+          // `preserveThinking` is only consumed by Qwen/Zhipu handlePayload (which runs above)
+          // and must not leak to other providers' APIs as an unknown parameter.
+          const { apiMode: _, preserveThinking: _pt, ...cleanedPayload } = postPayload as any;
           const finalPayload = {
             ...cleanedPayload,
             messages,
             ...(chatCompletion?.noUserId ? {} : { user: options?.user }),
-            stream_options:
-              postPayload.stream && !chatCompletion?.excludeUsage
-                ? { include_usage: true }
-                : undefined,
+            ...this.resolvePromptCacheKeyParams(
+              cleanedPayload.model,
+              options?.user,
+              cleanedPayload.prompt_cache_key,
+            ),
+            stream_options: includeUsageRequested ? { include_usage: true } : undefined,
           };
 
           log('sending chat completion request with %d messages', messages.length);
@@ -700,6 +847,74 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       );
     }
 
+    /**
+     * Simulate schema-based structured output through a forced tool call, for
+     * providers that do not support `response_format: { type: 'json_schema' }`.
+     * Returns the parsed schema object — the same shape as the json_schema path.
+     */
+    private async generateObjectViaToolCalling(
+      payload: GenerateObjectPayload,
+      options: GenerateObjectOptions | undefined,
+      usagePayload: Parameters<typeof convertOpenAIUsage>[1],
+    ) {
+      const { messages, schema, model } = payload;
+
+      // Apply schema transformation if configured
+      const processedSchema = generateObjectConfig?.handleSchema
+        ? { ...schema!, schema: generateObjectConfig.handleSchema(schema!.schema) }
+        : schema!;
+
+      const tool: ChatCompletionTool = {
+        function: {
+          description:
+            processedSchema.description ||
+            'Generate structured output according to the provided schema',
+          name: processedSchema.name || 'structured_output',
+          parameters: processedSchema.schema,
+        },
+        type: 'function',
+      };
+
+      const res = await this.client.chat.completions.create(
+        this.handleGenerateObjectPayload(payload, {
+          ...getGenerateObjectReasoningParams(payload),
+          messages,
+          model,
+          ...this.resolvePromptCacheKeyParams(model, options?.user),
+          tool_choice: { function: { name: tool.function.name }, type: 'function' },
+          tools: [tool],
+          user: options?.user,
+        }) as OpenAI.ChatCompletionCreateParamsNonStreaming,
+        { headers: options?.headers, signal: options?.signal },
+      );
+
+      if (res.usage) {
+        await options?.onUsage?.(convertOpenAIUsage(res.usage, usagePayload));
+      }
+
+      // Structural type keeps this compatible across openai SDK majors (v6
+      // widened tool_calls to a function/custom union).
+      const toolCalls = res.choices[0].message.tool_calls as
+        | { function?: { arguments: string; name: string } }[]
+        | undefined;
+      const toolCall =
+        toolCalls?.find((item) => item.function?.name === tool.function.name) ?? toolCalls?.[0];
+
+      if (!toolCall?.function) {
+        // tool_choice forces this function, so a missing tool call means the
+        // provider misbehaved — surface it instead of silently returning undefined
+        console.error('no tool call found in structured output response:', res.choices[0]?.message);
+        return undefined;
+      }
+
+      try {
+        return JSON.parse(toolCall.function.arguments);
+      } catch {
+        console.error('parse tool call arguments error:', toolCall);
+        return undefined;
+      }
+    }
+
     async generateObject(payload: GenerateObjectPayload, options?: GenerateObjectOptions) {
       try {
         const { messages, schema, model, responseApi, tools } = payload;
@@ -722,52 +937,15 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
         if (!schema) throw new Error('tools or schema is required');
 
-        // Use tool calling fallback if configured
-        if (generateObjectConfig?.useToolsCalling) {
+        // Use tool calling fallback if configured, or when the model is known to
+        // reject `response_format: { type: 'json_schema' }`. The DeepSeek API only
+        // supports `json_object` and replies `400 This response_format type is
+        // unavailable now` to json_schema requests, so DeepSeek-family models served
+        // through generic OpenAI-compatible providers (aggregator gateways, custom
+        // endpoints) must simulate structured output via forced tool calling.
+        if (generateObjectConfig?.useToolsCalling || detectModelProvider(model) === 'deepseek') {
           log('using tool calling fallback for structured output');
-
-          // Apply schema transformation if configured
-          const processedSchema = generateObjectConfig.handleSchema
-            ? { ...schema, schema: generateObjectConfig.handleSchema(schema.schema) }
-            : schema;
-
-          const tool: ChatCompletionTool = {
-            function: {
-              description:
-                processedSchema.description ||
-                'Generate structured output according to the provided schema',
-              name: processedSchema.name || 'structured_output',
-              parameters: processedSchema.schema,
-            },
-            type: 'function',
-          };
-
-          const res = await this.client.chat.completions.create(
-            {
-              messages,
-              model,
-              tool_choice: { function: { name: tool.function.name }, type: 'function' },
-              tools: [tool],
-              user: options?.user,
-            },
-            { headers: options?.headers, signal: options?.signal },
-          );
-
-          if (res.usage) {
-            await options?.onUsage?.(convertOpenAIUsage(res.usage, usagePayload));
-          }
-
-          const toolCalls = res.choices[0].message.tool_calls!;
-
-          try {
-            return toolCalls.map((item) => ({
-              arguments: JSON.parse(item.function.arguments),
-              name: item.function.name,
-            }));
-          } catch {
-            console.error('parse tool call arguments error:', toolCalls);
-            return undefined;
-          }
+          return await this.generateObjectViaToolCalling(payload, options, usagePayload);
         }
 
         // Factory-level Responses API routing control (supports instance override)
@@ -800,6 +978,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             {
               input: messages,
               model,
+              ...getGenerateObjectResponsesReasoningParams(payload),
+              ...this.resolvePromptCacheKeyParams(model, options?.user),
               text: { format: { strict: true, type: 'json_schema', ...processedSchema } },
               // Responses API replaced `user` with `safety_identifier`; some endpoints reject `user`
               safety_identifier: options?.user,
@@ -825,15 +1005,29 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         }
 
         log('calling chat.completions.create for structured output');
-        const res = await this.client.chat.completions.create(
-          {
-            messages,
-            model,
-            response_format: { json_schema: processedSchema, type: 'json_schema' },
-            user: options?.user,
-          },
-          { headers: options?.headers, signal: options?.signal },
-        );
+        let res: OpenAI.ChatCompletion;
+        try {
+          res = await this.client.chat.completions.create(
+            this.handleGenerateObjectPayload(payload, {
+              ...getGenerateObjectReasoningParams(payload),
+              messages,
+              model,
+              response_format: { json_schema: processedSchema, type: 'json_schema' },
+              ...this.resolvePromptCacheKeyParams(model, options?.user),
+              user: options?.user,
+            }) as OpenAI.ChatCompletionCreateParamsNonStreaming,
+            { headers: options?.headers, signal: options?.signal },
+          );
+        } catch (error) {
+          // Gateways can serve json_schema-incapable upstreams under arbitrary
+          // model ids (e.g. OpenCode Zen's `big-pickle` proxies DeepSeek), which
+          // the model-id detection above cannot catch. Retry once via forced
+          // tool calling when the upstream rejects the response_format type.
+          if (!isResponseFormatUnsupportedError(error)) throw error;
+
+          log('provider rejected json_schema response_format, retrying via tool calling');
+          return await this.generateObjectViaToolCalling(payload, options, usagePayload);
+        }
         if (res.usage) {
           await options?.onUsage?.(convertOpenAIUsage(res.usage, usagePayload));
         }
@@ -921,6 +1115,39 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       }
     }
 
+    async transcribe(payload: ASRPayload, options?: ASROptions): Promise<ASRResponse> {
+      const log = debug(`${this.logPrefix}:transcribe`);
+      const { file, fileName, model, language, prompt, responseFormat, temperature } = payload;
+      log('transcribe called with model: %s, audio size: %d bytes', model, file?.size || 0);
+
+      try {
+        // The OpenAI SDK only accepts `File` uploads; wrap bare blobs so the
+        // provider can infer the audio format from the file extension.
+        const uploadFile =
+          file instanceof File ? file : new File([file], fileName || 'audio', { type: file.type });
+
+        const transcription = await this.client.audio.transcriptions.create(
+          {
+            file: uploadFile,
+            language,
+            model,
+            prompt,
+            response_format: responseFormat,
+            temperature,
+          },
+          { headers: options?.headers, signal: options?.signal },
+        );
+
+        const text =
+          typeof transcription === 'string' ? transcription : ((transcription as any).text ?? '');
+        log('transcription completed, text length: %d', text.length);
+
+        return { text };
+      } catch (error) {
+        throw this.handleError(error);
+      }
+    }
+
     protected handleError(error: any): ChatCompletionErrorPayload {
       const log = debug(`${this.logPrefix}:error`);
       log('handling error: %O', error);
@@ -930,6 +1157,20 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       // refs: https://github.com/lobehub/lobe-chat/issues/842
       if (this.baseURL !== DEFAULT_BASE_URL) {
         desensitizedEndpoint = desensitizeUrl(this.baseURL);
+      }
+
+      // Pre-flight context-window failures get a structured payload so the
+      // UI can offer fork / switch-model affordances instead of surfacing a
+      // raw provider 400. See .
+      if (error instanceof ContextExceededPreFlightError) {
+        log('pre-flight context exceeded: %s', error.message);
+        return AgentRuntimeError.chat({
+          endpoint: desensitizedEndpoint,
+          error: error.toPayload(),
+          errorType: AgentRuntimeErrorType.ExceededContextWindow,
+          message: error.message,
+          provider: this.id,
+        });
       }
 
       if (chatCompletion?.handleError) {
@@ -1007,7 +1248,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       const errorMsg = errorResult.error?.message || errorResult.message;
 
-      if (isAccountDeactivatedError(errorMsg)) {
+      if (ErrorClassifier.isAccountDeactivated(errorMsg)) {
         log('account deactivated error detected from message');
         return AgentRuntimeError.chat({
           endpoint: desensitizedEndpoint,
@@ -1018,7 +1259,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         });
       }
 
-      if (isInsufficientQuotaError(errorMsg)) {
+      if (ErrorClassifier.isInsufficientQuota(errorMsg)) {
         log('insufficient quota error detected from message');
         return AgentRuntimeError.chat({
           endpoint: desensitizedEndpoint,
@@ -1029,7 +1270,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         });
       }
 
-      if (isExceededContextWindowError(errorMsg)) {
+      if (ErrorClassifier.isExceededContextWindow(errorMsg)) {
         log('context length exceeded detected from message');
         return AgentRuntimeError.chat({
           endpoint: desensitizedEndpoint,
@@ -1040,12 +1281,12 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         });
       }
 
-      if (isQuotaLimitError(errorMsg)) {
+      if (ErrorClassifier.isRateLimitExceeded(errorMsg)) {
         log('quota limit reached detected from message');
         return AgentRuntimeError.chat({
           endpoint: desensitizedEndpoint,
           error: errorResult,
-          errorType: AgentRuntimeErrorType.QuotaLimitReached,
+          errorType: AgentRuntimeErrorType.RateLimitExceeded,
           message,
           provider: this.id,
         });
@@ -1079,6 +1320,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       delete res.apiMode;
       delete res.frequency_penalty;
       delete res.presence_penalty;
+      delete res.preserveThinking;
 
       const input = await convertOpenAIResponseInputs(messages as any, {
         forceImageBase64: chatCompletion?.forceImageBase64,
@@ -1107,8 +1349,13 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         input,
         ...(max_tokens && { max_output_tokens: max_tokens }),
         store: false,
-        stream: !isStreaming ? undefined : isStreaming,
+        stream: isStreaming || undefined,
         tools: tools?.map((tool) => this.convertChatCompletionToolToResponseTool(tool)),
+        ...this.resolvePromptCacheKeyParams(
+          res.model,
+          options?.user,
+          (res as OpenAIExtraParams).prompt_cache_key,
+        ),
         // Responses API replaced `user` with `safety_identifier`; some endpoints reject `user`
         safety_identifier: options?.user,
         // Sanitize sampling params for Responses API path
@@ -1116,7 +1363,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           normalizeTemperature: false,
           preferTemperature: true,
         }),
-      } as OpenAI.Responses.ResponseCreateParamsStreaming | OpenAI.Responses.ResponseCreateParams;
+      } as ResponseCreateParamsWithPromptCacheKey;
 
       if (debugParams?.responses?.()) {
         // eslint-disable-next-line no-console
@@ -1136,6 +1383,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         bizErrorTypeTransformer: chatCompletion?.handleStreamBizErrorType,
         callbacks: options?.callback,
         payload: {
+          apiMode: 'responses',
           model: payload.model,
           pricing: await getModelPricing(payload.model, this.id),
           provider: this.id,
@@ -1233,6 +1481,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           {
             input,
             model,
+            ...this.resolvePromptCacheKeyParams(model, options?.user),
             tool_choice: 'required',
             tools: tools!.map((tool) => this.convertChatCompletionToolToResponseTool(tool)),
             // Responses API replaced `user` with `safety_identifier`; some endpoints reject `user`
@@ -1271,13 +1520,15 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       const msgs = messages;
 
       const res = await this.client.chat.completions.create(
-        {
+        this.handleGenerateObjectPayload(payload, {
+          ...getGenerateObjectReasoningParams(payload),
           messages: msgs,
           model,
+          ...this.resolvePromptCacheKeyParams(model, options?.user),
           tool_choice: 'required',
           tools,
           user: options?.user,
-        },
+        }) as OpenAI.ChatCompletionCreateParamsNonStreaming,
         { headers: options?.headers, signal: options?.signal },
       );
 

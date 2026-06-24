@@ -37,13 +37,44 @@ describe('activeTopicDocumentContext', () => {
 
     expect(agentDocumentService.listDocuments).toHaveBeenCalledWith({
       agentId: 'agt_1',
-      target: 'currentTopic',
+      scope: 'currentTopic',
       topicId: 'tpc_1',
     });
     expect(context?.initialContext?.activeTopicDocument).toEqual({
       agentDocumentId: 'agd_1',
       documentId: 'docs_1',
       title: 'Doc 1',
+    });
+  });
+
+  it('short-circuits the reverse lookup when context carries agentDocumentId', async () => {
+    const context = await resolveActiveTopicDocumentInitialContext({
+      agentDocumentId: 'agd_caller',
+      agentId: 'agt_1',
+      documentId: 'docs_1',
+      scope: 'thread',
+      topicId: 'tpc_1',
+    });
+
+    expect(agentDocumentService.listDocuments).not.toHaveBeenCalled();
+    expect(context?.initialContext?.activeTopicDocument).toEqual({
+      agentDocumentId: 'agd_caller',
+      documentId: 'docs_1',
+    });
+  });
+
+  it('resolves with caller-supplied agentDocumentId even without an active topic', async () => {
+    const context = await resolveActiveTopicDocumentInitialContext({
+      agentDocumentId: 'agd_caller',
+      agentId: 'agt_1',
+      documentId: 'docs_1',
+      scope: 'thread',
+    });
+
+    expect(agentDocumentService.listDocuments).not.toHaveBeenCalled();
+    expect(context?.initialContext?.activeTopicDocument).toEqual({
+      agentDocumentId: 'agd_caller',
+      documentId: 'docs_1',
     });
   });
 

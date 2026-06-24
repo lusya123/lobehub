@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useRef } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router';
 
 import { useConversationStore } from '@/features/Conversation';
 import { overlayCaptureUploadPool } from '@/features/Electron/ScreenCapture/overlayCaptureUploadPool';
 import { canConsumePendingOverlayDispatch } from '@/features/Electron/ScreenCapture/overlayDispatch';
 import { useOverlayDispatchStore } from '@/features/Electron/ScreenCapture/overlayDispatchStore';
+import { usePermission } from '@/hooks/usePermission';
 import { useAgentStore } from '@/store/agent';
 import { agentByIdSelectors, agentSelectors } from '@/store/agent/selectors';
 import type { UploadFileItem } from '@/types/files/upload';
@@ -28,6 +29,8 @@ const MessageFromUrl = () => {
   const location = useLocation();
   const activeAgentId = useAgentStore((s) => s.activeAgentId);
   const isAgentConfigLoading = useAgentStore(agentSelectors.isAgentConfigLoading);
+  const { allowed: canCreate } = usePermission('create_content');
+  const { allowed: canEdit } = usePermission('edit_own_content');
   const [pendingDispatch, clearPendingDispatch] = useOverlayDispatchStore((s) => [
     s.pendingDispatch,
     s.clearPendingDispatch,
@@ -46,6 +49,7 @@ const MessageFromUrl = () => {
   useEffect(() => {
     const message = searchParams.get('message');
     if (!message) return;
+    if (!canCreate) return;
 
     // Wait for agentId to be available before sending
     if (!agentId) return;
@@ -82,6 +86,7 @@ const MessageFromUrl = () => {
     setSearchParams,
     sendMessage,
     agentId,
+    canCreate,
     context.topicId,
     isAgentConfigLoading,
     messagesInit,
@@ -90,6 +95,7 @@ const MessageFromUrl = () => {
 
   useEffect(() => {
     if (!pendingDispatch) return;
+    if (!canCreate) return;
 
     if (
       !canConsumePendingOverlayDispatch({
@@ -114,7 +120,7 @@ const MessageFromUrl = () => {
 
     void (async () => {
       try {
-        if (modelId && provider) {
+        if (canEdit && modelId && provider) {
           const agentState = useAgentStore.getState();
           const currentModel = agentByIdSelectors.getAgentModelById(agentId!)(agentState);
           const currentProvider = agentByIdSelectors.getAgentModelProviderById(agentId!)(
@@ -138,6 +144,8 @@ const MessageFromUrl = () => {
     })();
   }, [
     agentId,
+    canCreate,
+    canEdit,
     clearPendingDispatch,
     context.topicId,
     isAgentConfigLoading,

@@ -1,5 +1,6 @@
 import { type ChatStoreState } from '@/store/chat/initialState';
 import { messageMapKey, type MessageMapKeyInput } from '@/store/chat/utils/messageMapKey';
+import { topicMapKey } from '@/store/chat/utils/topicMapKey';
 
 import { type Operation, type OperationType } from './types';
 import { AI_RUNTIME_OPERATION_TYPES, INPUT_LOADING_OPERATION_TYPES } from './types';
@@ -218,6 +219,37 @@ const isAgentRuntimeRunningByContext =
         op.status === 'running' &&
         !op.metadata.isAborting,
     );
+  };
+
+/**
+ * Get the earliest start time for a running agent runtime operation in a
+ * specific context. This anchors visible elapsed-time UI to the top-level
+ * runtime op instead of short-lived sub-operations.
+ */
+const getAgentRuntimeStartTimeByContext =
+  (context: MessageMapKeyInput) =>
+  (s: ChatStoreState): number | undefined => {
+    if (!context.agentId) return undefined;
+
+    const operations = getOperationsByContext(context)(s);
+    let startTime: number | undefined;
+
+    for (const op of operations) {
+      if (
+        op.status !== 'running' ||
+        op.metadata.isAborting ||
+        !AI_RUNTIME_OPERATION_TYPES.includes(op.type)
+      ) {
+        continue;
+      }
+
+      startTime =
+        startTime === undefined
+          ? op.metadata.startTime
+          : Math.min(startTime, op.metadata.startTime);
+    }
+
+    return startTime;
   };
 
 /**
@@ -446,6 +478,50 @@ const isMessageInToolCalling =
   };
 
 /**
+ * Find a running tool operation start time by operation type.
+ */
+const getRunningToolOperationStartTime = (
+  type: OperationType,
+  toolCallId: string,
+  s: ChatStoreState,
+) => {
+  const operationIds = s.operationsByType[type] ?? [];
+  let startTime: number | undefined;
+
+  for (const id of operationIds) {
+    const operation = s.operations[id];
+    if (
+      !operation ||
+      operation.status !== 'running' ||
+      operation.metadata.tool_call_id !== toolCallId
+    ) {
+      continue;
+    }
+
+    startTime =
+      startTime === undefined
+        ? operation.metadata.startTime
+        : Math.min(startTime, operation.metadata.startTime);
+  }
+
+  return startTime;
+};
+
+/**
+ * Get the stable start time for a running tool call.
+ * Prefer the actual execution phase; fall back to the parent tool call while
+ * the execution operation has not been created yet.
+ */
+const getRunningToolCallStartTime =
+  (toolCallId: string) =>
+  (s: ChatStoreState): number | undefined => {
+    return (
+      getRunningToolOperationStartTime('executeToolCall', toolCallId, s) ??
+      getRunningToolOperationStartTime('toolCalling', toolCallId, s)
+    );
+  };
+
+/**
  * Check if currently aborting (cleaning up after user cancellation)
  * Used to show "Cleaning up tool calls..." message
  */
@@ -480,37 +556,65 @@ const isSendingMessage = (s: ChatStoreState): boolean => {
 };
 
 // === Unread Completion ===
+//
+// Unread is now a persisted topic status (`topics.status === 'unread'`), so
+// these selectors derive from the loaded topic map. The cross-agent badge on the
+// home sidebar reads the server-computed `SidebarAgentItem.unreadCount` instead,
+// since the home list doesn't load every agent's topics into `topicDataMap`.
 
 /**
- * Number of topics with unread completed generation for the given agent.
- * Drives the agent-level badge count.
+ * Number of topics with an unread completed generation for the given agent,
+ * counted from the agent's loaded topic bucket.
  */
 const agentUnreadCount =
   (agentId: string) =>
   (s: ChatStoreState): number => {
-    return s.unreadCompletedTopicsByAgent[agentId]?.size ?? 0;
+    const items = s.topicDataMap[topicMapKey({ agentId })]?.items;
+    if (!items) return 0;
+    let count = 0;
+    for (const topic of items) if (topic.status === 'unread') count += 1;
+    return count;
   };
 
 /**
- * Whether the agent has any unread completed generation.
+ * Whether the agent has any unread completed generation (from loaded topics).
  */
 const isAgentUnreadCompleted =
   (agentId: string) =>
-  (s: ChatStoreState): boolean => {
-    return (s.unreadCompletedTopicsByAgent[agentId]?.size ?? 0) > 0;
-  };
+  (s: ChatStoreState): boolean =>
+    agentUnreadCount(agentId)(s) > 0;
 
 /**
- * Whether a specific topic has unread completed generation.
- * Scans across agents since topic items don't carry agentId in scope here.
+ * Whether a specific topic has an unread completed generation. Scans the loaded
+ * topic buckets since topic items don't carry their agentId in this scope.
  */
 const isTopicUnreadCompleted =
   (topicId: string) =>
   (s: ChatStoreState): boolean => {
-    for (const set of Object.values(s.unreadCompletedTopicsByAgent)) {
-      if (set.has(topicId)) return true;
+    for (const data of Object.values(s.topicDataMap)) {
+      const topic = data.items?.find((t) => t.id === topicId);
+      if (topic) return topic.status === 'unread';
     }
     return false;
+  };
+
+/**
+ * Number of topics with an unread completed generation among the given topic ids.
+ * Used to surface an aggregated unread indicator on a collapsed topic group.
+ */
+const unreadCompletedCountForTopics =
+  (topicIds: string[]) =>
+  (s: ChatStoreState): number => {
+    if (topicIds.length === 0) return 0;
+    const wanted = new Set(topicIds);
+    let count = 0;
+    for (const data of Object.values(s.topicDataMap)) {
+      if (!data.items) continue;
+      for (const topic of data.items) {
+        if (wanted.has(topic.id) && topic.status === 'unread') count += 1;
+      }
+    }
+    return count;
   };
 
 // ━━━ Message Queue Selectors ━━━
@@ -559,10 +663,12 @@ export const operationSelectors = {
   getDeepestRunningOperationByMessage,
   getOperationById,
   getOperationContextFromMessage,
+  getAgentRuntimeStartTimeByContext,
   getOperationsByContext,
   getOperationsByMessage,
   getOperationsByType,
   getRunningOperations,
+  getRunningToolCallStartTime,
   hasAnyRunningOperation,
   hasRunningOperationByContext,
   hasRunningOperationType,
@@ -593,6 +699,7 @@ export const operationSelectors = {
   isRegenerating,
   isSendingMessage,
   isTopicUnreadCompleted,
+  unreadCompletedCountForTopics,
 
   // Message Queue
   getQueuedMessages,

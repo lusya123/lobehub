@@ -1,4 +1,3 @@
-import { SESSION_CHAT_URL } from '@lobechat/const';
 import { HETEROGENEOUS_TYPE_LABELS } from '@lobechat/heterogeneous-agents';
 import { type SidebarAgentItem } from '@lobechat/types';
 import { ActionIcon, Flexbox, Icon, Tag } from '@lobehub/ui';
@@ -7,18 +6,18 @@ import { Loader2, PinIcon } from 'lucide-react';
 import { type CSSProperties, type DragEvent } from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
 
 import NavItem from '@/features/NavPanel/components/NavItem';
+import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { usePrefetchAgent } from '@/hooks/usePrefetchAgent';
 import { useChatStore } from '@/store/chat';
 import { operationSelectors } from '@/store/chat/selectors';
 import { useGlobalStore } from '@/store/global';
 import { useHomeStore } from '@/store/home';
-import { prefetchRoute } from '@/utils/router';
 
 import { useAgentModal } from '../../ModalProvider';
 import Actions from '../Item/Actions';
+import { usePreservedAgentUrl } from '../usePreservedAgentUrl';
 import Avatar from './Avatar';
 import { useAgentDropdownMenu } from './useDropdownMenu';
 
@@ -76,11 +75,16 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 interface AgentItemProps {
   className?: string;
   item: SidebarAgentItem;
+  onNavigate?: () => void;
   style?: CSSProperties;
 }
 
-const AgentItem = memo<AgentItemProps>(({ item, style, className }) => {
+const AgentItem = memo<AgentItemProps>(({ item, style, className, onNavigate }) => {
   const { id, avatar, backgroundColor, title, pinned, heterogeneousType } = item;
+  // Unread count is server-computed (topics.status === 'unread') and carried on
+  // the sidebar list item, so it stays accurate across agents whose topics
+  // aren't loaded into the chat store on this client.
+  const unreadCount = item.unreadCount ?? 0;
   const { t } = useTranslation('chat');
   const { openCreateGroupModal } = useAgentModal();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -91,7 +95,6 @@ const AgentItem = memo<AgentItemProps>(({ item, style, className }) => {
 
   // Separate loading state from chat store - only show loading for this specific agent
   const isLoading = useChatStore(operationSelectors.isAgentRunning(id));
-  const unreadCount = useChatStore(operationSelectors.agentUnreadCount(id));
 
   // Get display title with fallback
   const displayTitle = title || t('untitledAgent');
@@ -115,14 +118,12 @@ const AgentItem = memo<AgentItemProps>(({ item, style, className }) => {
     displayTitle
   );
 
-  // Get URL for this agent
-  const agentUrl = SESSION_CHAT_URL(id, false);
+  const agentUrl = usePreservedAgentUrl(id);
 
   // Memoize event handlers
   const handleMouseEnter = useCallback(() => {
     prefetchAgent(id);
-    prefetchRoute(agentUrl);
-  }, [id, prefetchAgent, agentUrl]);
+  }, [id, prefetchAgent]);
 
   const handleDoubleClick = useCallback(() => {
     openAgentInNewWindow(id);
@@ -204,7 +205,13 @@ const AgentItem = memo<AgentItemProps>(({ item, style, className }) => {
   });
 
   return (
-    <Link aria-label={displayTitle} ref={setAnchor} to={agentUrl} onMouseEnter={handleMouseEnter}>
+    <WorkspaceLink
+      aria-label={displayTitle}
+      ref={setAnchor}
+      to={agentUrl}
+      onClick={onNavigate}
+      onMouseEnter={handleMouseEnter}
+    >
       <NavItem
         actions={<Actions dropdownMenu={dropdownMenu} />}
         className={className}
@@ -220,7 +227,7 @@ const AgentItem = memo<AgentItemProps>(({ item, style, className }) => {
         onDragEnd={handleDragEnd}
         onDragStart={handleDragStart}
       />
-    </Link>
+    </WorkspaceLink>
   );
 });
 

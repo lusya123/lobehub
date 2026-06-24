@@ -114,6 +114,35 @@ describe('MessagesEngine', () => {
       expect(result.messages[0].content).toBe(systemRole);
     });
 
+    it('should inject model knowledge cutoff when provided', async () => {
+      const params = createBasicParams({
+        modelKnowledgeCutoff: '2024-06',
+        systemRole: 'You are a helpful assistant',
+      });
+      const engine = new MessagesEngine(params);
+
+      const result = await engine.process();
+
+      expect(result.messages[0]).toEqual({
+        content: 'You are a helpful assistant\n\nModel knowledge cutoff: 2024-06',
+        role: 'system',
+      });
+      expect(result.metadata.modelKnowledgeCutoffInjected).toBe(true);
+    });
+
+    it('should skip model knowledge cutoff injection when unknown', async () => {
+      const params = createBasicParams({ systemRole: 'You are a helpful assistant' });
+      const engine = new MessagesEngine(params);
+
+      const result = await engine.process();
+
+      expect(result.messages[0]).toEqual({
+        content: 'You are a helpful assistant',
+        role: 'system',
+      });
+      expect(result.metadata.modelKnowledgeCutoffInjected).toBeUndefined();
+    });
+
     it('should inject history summary when provided', async () => {
       const historySummary = 'We discussed AI and machine learning';
       const params = createBasicParams({ historySummary });
@@ -389,13 +418,34 @@ describe('MessagesEngine', () => {
       expect(result).toBeDefined();
     });
 
-    it('should default to enabled without file URLs', async () => {
-      const params = createBasicParams();
+    it('should default to enabled with file URLs', async () => {
+      const params = createBasicParams({
+        messages: [
+          {
+            content: 'Read this',
+            createdAt: Date.now(),
+            fileList: [
+              {
+                fileType: 'text/plain',
+                id: 'file1',
+                name: 'test.txt',
+                size: 100,
+                url: 'https://files.example.com/test.txt',
+              },
+            ],
+            id: 'msg-1',
+            role: 'user',
+            updatedAt: Date.now(),
+          } as UIChatMessage,
+        ],
+      });
       const engine = new MessagesEngine(params);
 
-      // Should not throw
       const result = await engine.process();
-      expect(result).toBeDefined();
+      const userMessage = result.messages.find((message) => message.role === 'user');
+      const content = userMessage?.content as any[];
+
+      expect(content[0].text).toContain('url="https://files.example.com/test.txt"');
     });
   });
 
@@ -591,7 +641,7 @@ Document content here.
       expect(userMessage?.content).toContain('<active_topic_document>');
       expect(userMessage?.content).toContain('document_id="docs_123"');
       expect(userMessage?.content).toContain('agent_document_id="agd_123"');
-      expect(userMessage?.content).toContain('target="currentTopic"');
+      expect(userMessage?.content).toContain('scope="currentTopic"');
       expect(userMessage?.content).toContain('Do not use PageAgent editor tools');
       expect(result.metadata.activeTopicDocumentContextInjected).toBe(true);
     });
@@ -695,6 +745,60 @@ Document content here.
             m.role === 'assistant' && JSON.stringify(m).includes('lobe-page-agent____modifyNodes'),
         ),
       ).toBe(false);
+      expect(result.metadata.disabledToolCallFilter).toEqual({
+        filteredAssistantMessages: 1,
+        filteredToolCalls: 1,
+      });
+    });
+
+    it('should remove disabled tool calls after provider-safe name hashing', async () => {
+      const messages: UIChatMessage[] = [
+        {
+          content: 'Open the page',
+          createdAt: Date.now(),
+          id: 'msg-1',
+          role: 'user',
+          updatedAt: Date.now(),
+        } as UIChatMessage,
+        {
+          content: '',
+          createdAt: Date.now(),
+          id: 'msg-2',
+          role: 'assistant',
+          tools: [
+            {
+              apiName: 'open_page',
+              arguments: '{}',
+              id: 'call_1',
+              identifier: '@browser/use',
+              type: 'mcp',
+            },
+          ],
+          updatedAt: Date.now(),
+        } as UIChatMessage,
+        {
+          content: 'Opened the page.',
+          createdAt: Date.now(),
+          id: 'msg-3',
+          role: 'tool',
+          tool_call_id: 'call_1',
+          updatedAt: Date.now(),
+        } as UIChatMessage,
+      ];
+
+      const params = createBasicParams({
+        messages,
+        toolsConfig: {
+          disabledToolIdentifiers: ['@browser/use'],
+          tools: [],
+        },
+      });
+      const engine = new MessagesEngine(params);
+
+      const result = await engine.process();
+
+      expect(result.messages.some((m) => m.role === 'tool')).toBe(false);
+      expect(result.messages.some((m) => JSON.stringify(m).includes('MD5HASH_'))).toBe(false);
       expect(result.metadata.disabledToolCallFilter).toEqual({
         filteredAssistantMessages: 1,
         filteredToolCalls: 1,

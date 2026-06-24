@@ -224,12 +224,22 @@ const BriefCardActions = memo<BriefCardActionsProps>(
               </Button>
             );
           })}
+          {briefType === 'error' && (
+            <Button
+              className={styles.actionBtn}
+              disabled={loadingKey === 'ignore'}
+              shape={'round'}
+              onClick={() => handleResolve('ignore')}
+            >
+              {t('brief.action.ignore')}
+            </Button>
+          )}
           {primaryActions && (
             <Button
+              shadow
               className={styles.actionBtnPrimary}
               disabled={loadingKey === primaryActions.key}
               shape={'round'}
-              variant={'filled'}
               onClick={() => handleResolve(primaryActions.key)}
             >
               {getActionLabel(primaryActions)}

@@ -6,6 +6,7 @@ import { createAgentToolsEngine, createToolsEngine, getEnabledTools } from './in
 // Mock the store and helper dependencies
 vi.mock('@/store/tool', () => ({
   getToolStoreState: () => ({
+    connectors: [],
     builtinTools: [
       {
         identifier: 'search',
@@ -67,7 +68,6 @@ vi.mock('@/store/tool', () => ({
               description: 'Analyze visual media',
               name: 'analyzeVisualMedia',
               parameters: {
-                anyOf: [{ required: ['refs'] }, { required: ['urls'] }],
                 properties: {
                   question: { type: 'string' },
                   refs: {
@@ -105,8 +105,8 @@ vi.mock('@/store/tool/selectors', () => ({
     getInstalledPluginById: (id: string) => mockGetInstalledPluginById(id),
     installedPluginManifestList: () => mockInstalledPluginManifestList(),
   },
-  klavisStoreSelectors: {
-    klavisAsLobeTools: () => [],
+  composioStoreSelectors: {
+    composioAsLobeTools: () => [],
   },
   lobehubSkillStoreSelectors: {
     lobehubSkillAsLobeTools: () => [],
@@ -249,11 +249,12 @@ describe('toolEngineering', () => {
         provider: 'openai',
       });
 
-      expect(result.enabledToolIds).toEqual(['search', 'lobe-web-browsing']);
-      expect(result.enabledToolIds).toHaveLength(2);
+      // lobe-agent is always-on (alwaysOnToolIds), so it rides along with user tools.
+      expect(result.enabledToolIds).toEqual(['search', 'lobe-web-browsing', 'lobe-agent']);
+      expect(result.enabledToolIds).toHaveLength(3);
     });
 
-    it('should enable visual understanding when it is injected into runtime plugin ids', () => {
+    it('should enable lobe-agent when it is injected into runtime plugin ids', () => {
       const toolsEngine = createAgentToolsEngine({ model: 'deepseek-chat', provider: 'deepseek' }, [
         'lobe-agent',
       ]);
@@ -267,7 +268,7 @@ describe('toolEngineering', () => {
       expect(result.enabledToolIds).toContain('lobe-agent');
     });
 
-    it('should not enable visual understanding by default', () => {
+    it('should enable lobe-agent by default since it is always-on', () => {
       const toolsEngine = createAgentToolsEngine({
         model: 'deepseek-chat',
         provider: 'deepseek',
@@ -279,7 +280,7 @@ describe('toolEngineering', () => {
         toolIds: [],
       });
 
-      expect(result.enabledToolIds).not.toContain('lobe-agent');
+      expect(result.enabledToolIds).toContain('lobe-agent');
     });
   });
 

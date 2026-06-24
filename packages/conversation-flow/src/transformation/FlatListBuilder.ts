@@ -223,41 +223,52 @@ export class FlatListBuilder {
           processedIds,
         );
 
+        // Gather external-signal callback blocks () for any
+        // tool in the chain that fired toolless reactive replies
+        // (Monitor stdout pushes, etc.). Snapshot now so the UI doesn't
+        // need to query messageMap; mark callback messages as processed
+        // so they don't render as separate top-level bubbles.
+        const signalBlocks = this.messageCollector.collectFlatSignalCallbacks(
+          allToolMessages,
+          allMessages,
+        );
+
+        // Post-task-summary turns () — toolless siblings of
+        // the callbacks under the same tool_result, tagged with
+        // `signal.type === 'task-completion'`. Belong inside the same
+        // AssistantGroup, rendered AFTER the SignalCallbacks accordion.
+        const taskCompletionMessages = this.messageCollector.collectFlatTaskCompletions(
+          allToolMessages,
+          allMessages,
+        );
+
         // Create assistantGroup virtual message
         const groupMessage = this.createAssistantGroupMessage(
           assistantChain[0],
           assistantChain,
           allToolMessages,
+          signalBlocks,
+          taskCompletionMessages,
         );
         flatList.push(groupMessage);
 
         // Mark all as processed
         assistantChain.forEach((m) => processedIds.add(m.id));
         allToolMessages.forEach((m) => processedIds.add(m.id));
-
-        // Continue after the assistant chain
-        // Priority 1: If last assistant has non-tool children, continue from it
-        // Priority 2: Otherwise continue from tools (for cases where user replies to tool)
-        const lastAssistant = assistantChain.at(-1);
-        const toolIds = new Set(allToolMessages.map((t) => t.id));
-
-        const lastAssistantNonToolChildren = lastAssistant
-          ? this.childrenMap.get(lastAssistant.id)?.filter((childId) => !toolIds.has(childId))
-          : undefined;
-
-        if (
-          lastAssistantNonToolChildren &&
-          lastAssistantNonToolChildren.length > 0 &&
-          lastAssistant
-        ) {
-          // Follow-up messages exist after the last assistant (not tools)
-          this.buildFlatListRecursive(lastAssistant.id, flatList, processedIds, allMessages);
-        } else {
-          // No non-tool children of last assistant, check tools for children
-          for (const toolMsg of allToolMessages) {
-            this.buildFlatListRecursive(toolMsg.id, flatList, processedIds, allMessages);
-          }
+        for (const block of signalBlocks) {
+          for (const cb of block.callbacks) processedIds.add(cb.id);
         }
+        for (const completion of taskCompletionMessages) {
+          processedIds.add(completion.id);
+        }
+
+        this.continueAfterAssistantGroup(
+          assistantChain,
+          allToolMessages,
+          flatList,
+          processedIds,
+          allMessages,
+        );
         continue;
       }
 
@@ -279,6 +290,11 @@ export class FlatListBuilder {
 
       // Priority 3a: Compare mode from user message metadata
       const childMessages = this.childrenMap.get(message.id) ?? [];
+      // Non-tool children only are branch candidates (dual-form reader invariant: tool children are inline, not branches):
+      // a tool child is inline data of its assistant, never a sibling branch.
+      const nonToolChildMessages = childMessages.filter(
+        (childId) => this.messageMap.get(childId)?.role !== 'tool',
+      );
       if (this.isCompareMode(message) && childMessages.length > 1) {
         // Add user message
         flatList.push(message);
@@ -323,10 +339,10 @@ export class FlatListBuilder {
 
       // Priority 3d: User message with branches (multiple assistant children)
       // Branch indicator should be on the active assistant child message
-      if (message.role === 'user' && childMessages.length > 1) {
+      if (message.role === 'user' && nonToolChildMessages.length > 1) {
         const activeBranchId = this.branchResolver.getActiveBranchIdFromMetadata(
           message,
-          childMessages,
+          nonToolChildMessages,
           this.childrenMap,
         );
 
@@ -342,7 +358,7 @@ export class FlatListBuilder {
         flatList.push(message);
         processedIds.add(message.id);
 
-        const activeBranchIndex = childMessages.indexOf(activeBranchId);
+        const activeBranchIndex = nonToolChildMessages.indexOf(activeBranchId);
 
         // Continue with active branch - check if it's an assistantGroup
         const activeBranchMsg = this.messageMap.get(activeBranchId);
@@ -373,7 +389,7 @@ export class FlatListBuilder {
             // Add branch info to the assistantGroup message
             const groupMessageWithBranches = this.createMessageWithBranches(
               groupMessage,
-              childMessages.length,
+              nonToolChildMessages.length,
               activeBranchIndex,
             );
             flatList.push(groupMessageWithBranches);
@@ -382,30 +398,18 @@ export class FlatListBuilder {
             assistantChain.forEach((m) => processedIds.add(m.id));
             allToolMessages.forEach((m) => processedIds.add(m.id));
 
-            // Continue after the assistant chain
-            const lastAssistant = assistantChain.at(-1);
-            const toolIds = new Set(allToolMessages.map((t) => t.id));
-
-            const lastAssistantNonToolChildren = lastAssistant
-              ? this.childrenMap.get(lastAssistant.id)?.filter((childId) => !toolIds.has(childId))
-              : undefined;
-
-            if (
-              lastAssistantNonToolChildren &&
-              lastAssistantNonToolChildren.length > 0 &&
-              lastAssistant
-            ) {
-              this.buildFlatListRecursive(lastAssistant.id, flatList, processedIds, allMessages);
-            } else {
-              for (const toolMsg of allToolMessages) {
-                this.buildFlatListRecursive(toolMsg.id, flatList, processedIds, allMessages);
-              }
-            }
+            this.continueAfterAssistantGroup(
+              assistantChain,
+              allToolMessages,
+              flatList,
+              processedIds,
+              allMessages,
+            );
           } else {
             // Regular assistant message (not assistantGroup) - add branch info
             const activeBranchWithBranches = this.createMessageWithBranches(
               activeBranchMsg,
-              childMessages.length,
+              nonToolChildMessages.length,
               activeBranchIndex,
             );
             flatList.push(activeBranchWithBranches);
@@ -420,10 +424,10 @@ export class FlatListBuilder {
 
       // Priority 3e: Assistant message with branches (multiple user children)
       // Branch indicator should be on the active user child message
-      if (message.role === 'assistant' && childMessages.length > 1) {
+      if (message.role === 'assistant' && nonToolChildMessages.length > 1) {
         const activeBranchId = this.branchResolver.getActiveBranchIdFromMetadata(
           message,
-          childMessages,
+          nonToolChildMessages,
           this.childrenMap,
         );
 
@@ -439,7 +443,7 @@ export class FlatListBuilder {
         flatList.push(message);
         processedIds.add(message.id);
 
-        const activeBranchIndex = childMessages.indexOf(activeBranchId);
+        const activeBranchIndex = nonToolChildMessages.indexOf(activeBranchId);
 
         // Continue with active branch and add branch info to the user child
         const activeBranchMsg = this.messageMap.get(activeBranchId);
@@ -447,7 +451,7 @@ export class FlatListBuilder {
           // Add branch info to the active user child message
           const activeBranchWithBranches = this.createMessageWithBranches(
             activeBranchMsg,
-            childMessages.length,
+            nonToolChildMessages.length,
             activeBranchIndex,
           );
           flatList.push(activeBranchWithBranches);
@@ -501,25 +505,91 @@ export class FlatListBuilder {
     assistantChain.forEach((m) => processedIds.add(m.id));
     allToolMessages.forEach((m) => processedIds.add(m.id));
 
-    // Continue after the assistant chain
-    // Priority 1: If last assistant has non-tool children, continue from it
-    // Priority 2: Otherwise continue from tools (for cases where user replies to tool)
+    this.continueAfterAssistantGroup(
+      assistantChain,
+      allToolMessages,
+      flatList,
+      processedIds,
+      allMessages,
+    );
+  }
+
+  private continueAfterAssistantGroup(
+    assistantChain: Message[],
+    allToolMessages: Message[],
+    flatList: Message[],
+    processedIds: Set<string>,
+    allMessages: Message[],
+  ): void {
     const lastAssistant = assistantChain.at(-1);
-    const toolIds = new Set(allToolMessages.map((t) => t.id));
+    const parentIds = [
+      ...(lastAssistant ? [lastAssistant.id] : []),
+      ...allToolMessages.map((toolMessage) => toolMessage.id),
+    ];
 
-    const lastAssistantNonToolChildren = lastAssistant
-      ? this.childrenMap.get(lastAssistant.id)?.filter((childId) => !toolIds.has(childId))
-      : undefined;
+    while (true) {
+      const nextContinuation = this.findNextUnprocessedChild(parentIds, processedIds);
+      if (!nextContinuation) return;
 
-    if (lastAssistantNonToolChildren && lastAssistantNonToolChildren.length > 0 && lastAssistant) {
-      // Follow-up messages exist after the last assistant (not tools)
-      this.buildFlatListRecursive(lastAssistant.id, flatList, processedIds, allMessages);
-    } else {
-      // No non-tool children of last assistant, check tools for children
-      for (const toolMsg of allToolMessages) {
-        this.buildFlatListRecursive(toolMsg.id, flatList, processedIds, allMessages);
+      if (this.shouldDrainParentContinuations(nextContinuation.parentId, processedIds)) {
+        this.buildFlatListRecursive(nextContinuation.parentId, flatList, processedIds, allMessages);
+        continue;
       }
+
+      this.buildFlatListRecursiveForChild(
+        nextContinuation.parentId,
+        nextContinuation.child.id,
+        flatList,
+        processedIds,
+        allMessages,
+      );
     }
+  }
+
+  private buildFlatListRecursiveForChild(
+    parentId: string,
+    childId: string,
+    flatList: Message[],
+    processedIds: Set<string>,
+    allMessages: Message[],
+  ): void {
+    const childIds = this.childrenMap.get(parentId) ?? [];
+    this.childrenMap.set(parentId, [childId]);
+
+    try {
+      this.buildFlatListRecursive(parentId, flatList, processedIds, allMessages);
+    } finally {
+      this.childrenMap.set(parentId, childIds);
+    }
+  }
+
+  private findNextUnprocessedChild(
+    parentIds: string[],
+    processedIds: Set<string>,
+  ): { child: Message; parentId: string } | undefined {
+    return parentIds
+      .flatMap((parentId) =>
+        (this.childrenMap.get(parentId) ?? [])
+          .map((childId) => this.messageMap.get(childId))
+          .filter((child): child is Message => !!child && !processedIds.has(child.id))
+          .map((child) => ({ child, parentId })),
+      )
+      .sort((a, b) => a.child.createdAt - b.child.createdAt)[0];
+  }
+
+  private shouldDrainParentContinuations(parentId: string, processedIds: Set<string>): boolean {
+    const parentMessage = this.messageMap.get(parentId);
+    const children = (this.childrenMap.get(parentId) ?? []).filter(
+      (childId) => !processedIds.has(childId),
+    );
+    if (!parentMessage || children.length <= 1) return false;
+
+    if (this.isAgentCouncilMode(parentMessage)) return true;
+
+    const taskChildren = children.filter(
+      (childId) => this.messageMap.get(childId)?.role === 'task',
+    );
+    return taskChildren.length > 1;
   }
 
   /**
@@ -748,6 +818,13 @@ export class FlatListBuilder {
     firstAssistant: Message,
     assistantChain: Message[],
     allToolMessages: Message[],
+    signalCallbackBlocks?: {
+      callbacks: Message[];
+      sourceToolCallId: string;
+      sourceToolMessageId: string;
+      sourceToolName: string;
+    }[],
+    taskCompletionMessages?: Message[],
   ): Message {
     const children: AssistantContentBlock[] = [];
 
@@ -905,6 +982,47 @@ export class FlatListBuilder {
     // Preserve isSupervisor in metadata for supervisor messages
     if (isSupervisor) {
       result.metadata = { ...result.metadata, isSupervisor: true };
+    }
+
+    // Snapshot signal-callback blocks onto the virtual group message
+    // () so AssistantGroupMessage can render `<SignalCallbacks>`
+    // without re-querying the store. Each callback Message becomes a
+    // compact UISignalCallback with content + model/provider/sequence.
+    if (signalCallbackBlocks && signalCallbackBlocks.length > 0) {
+      result.signalCallbacks = signalCallbackBlocks.map((block) => ({
+        callbacks: block.callbacks.map((m) => ({
+          content: m.content ?? '',
+          id: m.id,
+          model: m.model ?? undefined,
+          provider: m.provider ?? undefined,
+          sequence: (m.metadata as { signal?: { sequence?: number } } | null | undefined)?.signal
+            ?.sequence,
+        })),
+        sourceToolCallId: block.sourceToolCallId,
+        sourceToolMessageId: block.sourceToolMessageId,
+        sourceToolName: block.sourceToolName,
+      }));
+    }
+
+    // Snapshot post-task-summary turns as content blocks ().
+    // They render after `<SignalCallbacks>` inside the same group, via
+    // a second `<Group>` that pulls live content from the store using
+    // the block id (no need to denormalize text here — keeps streaming
+    // updates working without an extra refresh).
+    if (taskCompletionMessages && taskCompletionMessages.length > 0) {
+      result.taskCompletions = taskCompletionMessages.map((m) => {
+        const block: AssistantContentBlock = {
+          content: m.content ?? '',
+          id: m.id,
+        };
+        if (m.error) block.error = m.error;
+        if (m.fileList && m.fileList.length > 0) block.fileList = m.fileList;
+        if (m.imageList && m.imageList.length > 0) block.imageList = m.imageList;
+        if (m.performance) block.performance = m.performance;
+        if (m.reasoning) block.reasoning = m.reasoning;
+        if (m.usage) block.usage = m.usage;
+        return block;
+      });
     }
 
     return result;

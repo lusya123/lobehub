@@ -12,6 +12,9 @@ import {
   type GrepContentParams,
   type GrepContentResult,
   type ListLocalFileParams,
+  type LocalFilePreviewResult,
+  type LocalFilePreviewUrlParams,
+  type LocalFilePreviewUrlResult,
   type LocalMoveFilesResultItem,
   type LocalReadFileParams,
   type LocalReadFileResult,
@@ -39,17 +42,18 @@ import {
 import {
   editLocalFile,
   expandTilde,
+  type FileResult,
   listLocalFiles,
   moveLocalFiles,
   readLocalFile,
   renameLocalFile,
+  type SearchOptions,
   writeLocalFile,
 } from '@lobechat/local-file-shell';
 import { dialog, shell } from 'electron';
 import { execa } from 'execa';
 import { unzipSync } from 'fflate';
 
-import { type FileResult, type SearchOptions } from '@/modules/fileSearch';
 import ContentSearchService from '@/services/contentSearchSrv';
 import FileSearchService from '@/services/fileSearchSrv';
 import { createLogger } from '@/utils/logger';
@@ -61,6 +65,19 @@ import { ControllerModule, IpcMethod } from './index';
 const logger = createLogger('controllers:LocalFileCtr');
 
 const SAFE_PATH_PREFIXES = ['/tmp', '/var/tmp'] as const;
+
+const TEXT_PREVIEW_MIME_TYPES = new Set([
+  'application/graphql',
+  'application/javascript',
+  'application/json',
+  'application/markdown',
+  'application/toml',
+  'application/xml',
+  'application/yaml',
+  'text/markdown',
+  'text/mdx',
+  'text/x-markdown',
+]);
 
 const normalizeAbsolutePath = (inputPath: string): string =>
   path.normalize(path.isAbsolute(inputPath) ? inputPath : `/${inputPath}`);
@@ -87,6 +104,48 @@ const resolveNearestExistingRealPath = async (targetPath: string): Promise<strin
 };
 
 const toPosixRelativePath = (filePath: string) => filePath.split(path.sep).join('/');
+
+const normalizeContentType = (contentType: string): string =>
+  contentType.split(';')[0].trim().toLowerCase();
+
+const isTextPreviewMimeType = (mimeType: string): boolean =>
+  mimeType.startsWith('text/') || TEXT_PREVIEW_MIME_TYPES.has(mimeType);
+
+const serializePreviewFile = ({
+  buffer,
+  contentType,
+}: {
+  buffer: Buffer;
+  contentType: string;
+}): NonNullable<LocalFilePreviewResult['preview']> => {
+  const normalizedContentType = normalizeContentType(contentType);
+
+  if (normalizedContentType.startsWith('image/')) {
+    return {
+      base64: buffer.toString('base64'),
+      contentType: normalizedContentType,
+      type: 'image',
+    };
+  }
+
+  if (isTextPreviewMimeType(normalizedContentType)) {
+    return {
+      content: buffer.toString('utf8'),
+      contentType: normalizedContentType,
+      type: 'text',
+    };
+  }
+
+  if (normalizedContentType === 'application/pdf') {
+    return { contentType: normalizedContentType, type: 'pdf' };
+  }
+
+  if (normalizedContentType.startsWith('video/')) {
+    return { contentType: normalizedContentType, type: 'video' };
+  }
+
+  return { contentType: normalizedContentType, type: 'binary' };
+};
 
 const createProjectFileEntry = (
   root: string,
@@ -187,14 +246,15 @@ export default class LocalFileCtr extends ControllerModule {
     error?: string;
     success: boolean;
   }> {
-    logger.debug('Attempting to open file:', { filePath });
+    const resolvedPath = expandTilde(filePath) ?? filePath;
+    logger.debug('Attempting to open file:', { filePath: resolvedPath });
 
     try {
-      await shell.openPath(filePath);
-      logger.debug('File opened successfully:', { filePath });
+      await shell.openPath(resolvedPath);
+      logger.debug('File opened successfully:', { filePath: resolvedPath });
       return { success: true };
     } catch (error) {
-      logger.error(`Failed to open file ${filePath}:`, error);
+      logger.error(`Failed to open file ${resolvedPath}:`, error);
       return { error: (error as Error).message, success: false };
     }
   }
@@ -204,8 +264,13 @@ export default class LocalFileCtr extends ControllerModule {
     error?: string;
     success: boolean;
   }> {
-    const folderPath = isDirectory ? targetPath : path.dirname(targetPath);
-    logger.debug('Attempting to open folder:', { folderPath, isDirectory, targetPath });
+    const resolvedTarget = expandTilde(targetPath) ?? targetPath;
+    const folderPath = isDirectory ? resolvedTarget : path.dirname(resolvedTarget);
+    logger.debug('Attempting to open folder:', {
+      folderPath,
+      isDirectory,
+      targetPath: resolvedTarget,
+    });
 
     try {
       await shell.openPath(folderPath);
@@ -301,14 +366,14 @@ export default class LocalFileCtr extends ControllerModule {
   }
 
   @IpcMethod()
-  async readFiles({ paths }: LocalReadFilesParams): Promise<LocalReadFileResult[]> {
+  async readFiles({ paths, cwd }: LocalReadFilesParams): Promise<LocalReadFileResult[]> {
     logger.debug('Starting batch file reading:', { count: paths.length });
 
     const results: LocalReadFileResult[] = [];
 
     for (const filePath of paths) {
       logger.debug('Reading single file:', { filePath });
-      const result = await readLocalFile({ path: filePath });
+      const result = await readLocalFile({ cwd, path: filePath });
       results.push(result);
     }
 
@@ -335,9 +400,9 @@ export default class LocalFileCtr extends ControllerModule {
   }
 
   @IpcMethod()
-  async handleMoveFiles({ items }: MoveLocalFilesParams): Promise<LocalMoveFilesResultItem[]> {
+  async handleMoveFiles({ items, cwd }: MoveLocalFilesParams): Promise<LocalMoveFilesResultItem[]> {
     logger.debug('Starting batch file move:', { itemsCount: items?.length });
-    return moveLocalFiles({ items });
+    return moveLocalFiles({ cwd, items });
   }
 
   @IpcMethod()
@@ -353,9 +418,9 @@ export default class LocalFileCtr extends ControllerModule {
   }
 
   @IpcMethod()
-  async handleWriteFile({ path: filePath, content }: WriteLocalFileParams) {
+  async handleWriteFile({ path: filePath, content, cwd }: WriteLocalFileParams) {
     logger.debug(`Writing file ${filePath}`, { contentLength: content?.length });
-    return writeLocalFile({ content, path: filePath });
+    return writeLocalFile({ content, cwd, path: filePath });
   }
 
   @IpcMethod()
@@ -368,6 +433,61 @@ export default class LocalFileCtr extends ControllerModule {
     return {
       allSafe: await areAllPathsSafeOnDisk(paths, resolveAgainstScope),
     };
+  }
+
+  @IpcMethod()
+  async getLocalFilePreviewUrl({
+    accept,
+    allowExternalFile,
+    path: filePath,
+    workingDirectory,
+  }: LocalFilePreviewUrlParams): Promise<LocalFilePreviewUrlResult> {
+    try {
+      const url = await this.app.localFileProtocolManager.createPreviewUrl({
+        accept,
+        allowExternalFile,
+        filePath,
+        workspaceRoot: workingDirectory,
+      });
+
+      if (!url) {
+        return { error: 'File is outside the approved workspace', success: false };
+      }
+
+      return { success: true, url };
+    } catch (error) {
+      logger.error('Failed to create local file preview URL:', error);
+      return { error: (error as Error).message, success: false };
+    }
+  }
+
+  @IpcMethod()
+  async getLocalFilePreview({
+    accept,
+    allowExternalFile,
+    path: filePath,
+    workingDirectory,
+  }: LocalFilePreviewUrlParams): Promise<LocalFilePreviewResult> {
+    try {
+      const preview = await this.app.localFileProtocolManager.readPreviewFile({
+        accept,
+        allowExternalFile,
+        filePath,
+        workspaceRoot: workingDirectory,
+      });
+
+      if (!preview) {
+        return { error: 'File is outside the approved workspace', success: false };
+      }
+
+      return {
+        preview: serializePreviewFile(preview),
+        success: true,
+      };
+    } catch (error) {
+      logger.error('Failed to read local file preview:', error);
+      return { error: (error as Error).message, success: false };
+    }
   }
 
   @IpcMethod()
@@ -532,6 +652,7 @@ export default class LocalFileCtr extends ControllerModule {
           requestedScope,
           root,
         });
+        await this.approveProjectRootForPreview(root);
 
         return {
           entries,
@@ -560,6 +681,7 @@ export default class LocalFileCtr extends ControllerModule {
       engine: fallback.engine,
       requestedScope,
     });
+    await this.approveProjectRootForPreview(requestedScope);
 
     return {
       entries,
@@ -640,5 +762,13 @@ export default class LocalFileCtr extends ControllerModule {
   async handleEditFile(params: EditLocalFileParams): Promise<EditLocalFileResult> {
     logger.debug(`Editing file ${params.file_path}`, { replace_all: params.replace_all });
     return editLocalFile(params);
+  }
+
+  private async approveProjectRootForPreview(root: string) {
+    try {
+      await this.app.localFileProtocolManager.approveIndexedProjectRoot(root);
+    } catch (error) {
+      logger.error(`Failed to approve project preview root ${root}:`, error);
+    }
   }
 }

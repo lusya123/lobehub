@@ -6,10 +6,10 @@ import { Loader2, PinIcon } from 'lucide-react';
 import { type CSSProperties, type DragEvent } from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
 
 import AgentGroupAvatar from '@/features/AgentGroupAvatar';
 import NavItem from '@/features/NavPanel/components/NavItem';
+import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { useGlobalStore } from '@/store/global';
 import { useHomeStore } from '@/store/home';
 
@@ -19,10 +19,11 @@ import { useGroupDropdownMenu } from './useDropdownMenu';
 interface GroupItemProps {
   className?: string;
   item: SidebarAgentItem;
+  onNavigate?: () => void;
   style?: CSSProperties;
 }
 
-const GroupItem = memo<GroupItemProps>(({ item, style, className }) => {
+const GroupItem = memo<GroupItemProps>(({ item, style, className, onNavigate }) => {
   const { id, avatar, backgroundColor, title, pinned } = item;
   const { t } = useTranslation('chat');
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -102,7 +103,7 @@ const GroupItem = memo<GroupItemProps>(({ item, style, className }) => {
   });
 
   return (
-    <Link aria-label={id} ref={setAnchor} to={groupUrl}>
+    <WorkspaceLink aria-label={id} ref={setAnchor} to={groupUrl} onClick={onNavigate}>
       <NavItem
         actions={<Actions dropdownMenu={dropdownMenu} />}
         className={className}
@@ -118,7 +119,7 @@ const GroupItem = memo<GroupItemProps>(({ item, style, className }) => {
         onDragEnd={handleDragEnd}
         onDragStart={handleDragStart}
       />
-    </Link>
+    </WorkspaceLink>
   );
 });
 

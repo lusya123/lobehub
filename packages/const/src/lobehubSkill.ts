@@ -36,6 +36,8 @@ export interface LobehubSkillProviderType {
   readme: string;
 }
 
+export type LobehubConnectorProviderType = LobehubSkillProviderType;
+
 /**
  * Predefined LobeHub Skill Provider list
  *
@@ -85,6 +87,17 @@ export const LOBEHUB_SKILL_PROVIDERS: LobehubSkillProviderType[] = [
     author: 'LobeHub',
     authorUrl: 'https://lobehub.com',
     defaultVisible: true,
+    description: 'Notion is a collaborative productivity and note-taking application.',
+    icon: 'https://hub-apac-1.lobeobjects.space/assets/logos/notion.svg',
+    id: 'notion',
+    readme:
+      'Connect to Notion to access and manage your workspace. Create pages, search content, update databases, and organize your knowledge base—all through natural conversation with your AI assistant.',
+    label: 'Notion',
+  },
+  {
+    author: 'LobeHub',
+    authorUrl: 'https://lobehub.com',
+    defaultVisible: true,
     description:
       'X (Twitter) is a social media platform for sharing real-time updates, news, and engaging with your audience through posts, replies, and direct messages.',
     icon: SiX,
@@ -107,11 +120,15 @@ export const LOBEHUB_SKILL_PROVIDERS: LobehubSkillProviderType[] = [
   },
 ];
 
+export const LOBEHUB_CONNECTOR_PROVIDERS = LOBEHUB_SKILL_PROVIDERS;
+
 /**
  * Get provider config by ID
  */
 export const getLobehubSkillProviderById = (id: string) =>
   LOBEHUB_SKILL_PROVIDERS.find((p) => p.id === id);
+
+export const getLobehubConnectorProviderById = getLobehubSkillProviderById;
 
 /**
  * Get all visible providers (for default UI display)

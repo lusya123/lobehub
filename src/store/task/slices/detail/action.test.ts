@@ -133,7 +133,7 @@ describe('TaskDetailSliceAction', () => {
       );
 
       expect(useTaskStore.getState().taskSaveStatus).toBe('idle');
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'T-1']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-1']);
       expect(message.error).toHaveBeenCalled();
     });
 
@@ -158,8 +158,8 @@ describe('TaskDetailSliceAction', () => {
         useTaskStore.getState().updateTask('T-sub', { assigneeAgentId: 'agent-x' }),
       ).rejects.toThrow('fail');
 
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'T-sub']);
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'T-parent']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-sub']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-parent']);
     });
 
     it('should not show error when update succeeds but cache refresh fails', async () => {
@@ -179,6 +179,35 @@ describe('TaskDetailSliceAction', () => {
 
       expect(useTaskStore.getState().taskSaveStatus).toBe('saved');
       expect(message.error).not.toHaveBeenCalled();
+    });
+
+    it('should refresh list and affected details when reparenting', async () => {
+      const { mutate } = await import('@/libs/swr');
+      useTaskStore.setState({
+        activeTaskId: 'T-sub',
+        taskDetailMap: {
+          'T-parent': {
+            identifier: 'T-parent',
+            instruction: 'Parent',
+            status: 'backlog',
+            subtasks: [{ assignee: null, identifier: 'T-sub', name: 'Sub', status: 'backlog' }],
+          },
+          'T-sub': { identifier: 'T-sub', instruction: 'Sub', status: 'backlog' },
+        },
+      });
+
+      const refreshTaskList = vi.fn().mockResolvedValue(undefined);
+      useTaskStore.setState({ refreshTaskList } as any);
+      vi.mocked(taskService.update).mockResolvedValue({ success: true } as any);
+
+      await useTaskStore.getState().updateTask('T-sub', { parentTaskId: 'T-new-parent' });
+
+      expect(taskService.update).toHaveBeenCalledWith('T-sub', { parentTaskId: 'T-new-parent' });
+      expect(useTaskStore.getState().taskDetailMap['T-sub']).not.toHaveProperty('parentTaskId');
+      expect(refreshTaskList).toHaveBeenCalled();
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-sub']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-parent']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-new-parent']);
     });
 
     it('should refresh the parent that was patched even if activeTaskId changes mid-flight', async () => {
@@ -204,8 +233,8 @@ describe('TaskDetailSliceAction', () => {
         useTaskStore.getState().updateTask('T-sub', { assigneeAgentId: 'agent-x' }),
       ).rejects.toThrow('fail');
 
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'T-sub']);
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'T-parent']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-sub']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-parent']);
     });
   });
 
@@ -273,7 +302,7 @@ describe('TaskDetailSliceAction', () => {
       await useTaskStore.getState().addComment('T-1', 'Nice work');
 
       expect(taskService.addComment).toHaveBeenCalledWith('T-1', 'Nice work', undefined);
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'T-1']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-1']);
     });
   });
 
@@ -285,7 +314,7 @@ describe('TaskDetailSliceAction', () => {
       await useTaskStore.getState().addDependency('T-1', 'T-2', 'blocks');
 
       expect(taskService.addDependency).toHaveBeenCalledWith('T-1', 'T-2', 'blocks');
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'T-1']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-1']);
     });
 
     it('should propagate error from service', async () => {
@@ -305,7 +334,7 @@ describe('TaskDetailSliceAction', () => {
       await useTaskStore.getState().removeDependency('T-1', 'T-2');
 
       expect(taskService.removeDependency).toHaveBeenCalledWith('T-1', 'T-2');
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'T-1']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-1']);
     });
   });
 
@@ -320,8 +349,8 @@ describe('TaskDetailSliceAction', () => {
       await useTaskStore.getState().unpinDocument('task_child', 'doc_1');
 
       expect(taskService.unpinDocument).toHaveBeenCalledWith('task_child', 'doc_1');
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'task_child']);
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'T-1']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'task_child']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-1']);
     });
 
     it('should not double-refresh when source task equals active task', async () => {
@@ -333,7 +362,7 @@ describe('TaskDetailSliceAction', () => {
       await useTaskStore.getState().unpinDocument('T-1', 'doc_1');
 
       expect(mutate).toHaveBeenCalledTimes(1);
-      expect(mutate).toHaveBeenCalledWith(['fetchTaskDetail', 'T-1']);
+      expect(mutate).toHaveBeenCalledWith(['task:detail', 'T-1']);
     });
   });
 

@@ -2,6 +2,10 @@ import { AgentManagementIdentifier } from '@lobechat/builtin-tool-agent-manageme
 import { act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { messageService } from '@/services/message';
+import { agentSelectors } from '@/store/agent/selectors';
+import * as agentDispatcher from '@/store/chat/slices/aiChat/actions/agentDispatcher';
+import * as heterogeneousAgentExecutor from '@/store/chat/slices/aiChat/actions/heterogeneousAgentExecutor';
 import { INPUT_LOADING_OPERATION_TYPES } from '@/store/chat/slices/operation/types';
 
 import { type ConversationContext, type ConversationHooks } from '../../../types';
@@ -19,7 +23,7 @@ const mockSwitchMessageBranch = vi.fn();
 const mockStartOperation = vi.fn(() => ({ operationId: 'test-op-id' }));
 const mockCompleteOperation = vi.fn();
 const mockFailOperation = vi.fn();
-const mockInternalExecAgentRuntime = vi.fn();
+const mockExecuteClientAgent = vi.fn();
 const mockIsGatewayModeEnabled = vi.fn(() => false);
 const mockExecuteGatewayAgent = vi.fn();
 
@@ -46,7 +50,7 @@ vi.mock('@/store/chat', () => ({
       startOperation: mockStartOperation,
       completeOperation: mockCompleteOperation,
       failOperation: mockFailOperation,
-      internal_execAgentRuntime: mockInternalExecAgentRuntime,
+      executeClientAgent: mockExecuteClientAgent,
       isGatewayModeEnabled: mockIsGatewayModeEnabled,
       executeGatewayAgent: mockExecuteGatewayAgent,
     })),
@@ -172,7 +176,7 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
@@ -212,8 +216,8 @@ describe('Generation Actions', () => {
         type: 'continue',
       });
 
-      // Should call internal_execAgentRuntime with last child id as parentMessageId
-      expect(mockInternalExecAgentRuntime).toHaveBeenCalledWith(
+      // Should call executeClientAgent with last child id as parentMessageId
+      expect(mockExecuteClientAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           context,
           parentMessageId: 'child-2', // last child's id
@@ -232,7 +236,7 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
@@ -257,7 +261,7 @@ describe('Generation Actions', () => {
 
       // Should not create operation if message is not assistantGroup
       expect(mockStartOperation).not.toHaveBeenCalled();
-      expect(mockInternalExecAgentRuntime).not.toHaveBeenCalled();
+      expect(mockExecuteClientAgent).not.toHaveBeenCalled();
     });
 
     it('should not continue if assistantGroup has no children', async () => {
@@ -269,7 +273,7 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
@@ -296,7 +300,7 @@ describe('Generation Actions', () => {
 
       // Should not create operation if no children
       expect(mockStartOperation).not.toHaveBeenCalled();
-      expect(mockInternalExecAgentRuntime).not.toHaveBeenCalled();
+      expect(mockExecuteClientAgent).not.toHaveBeenCalled();
     });
 
     it('should call onBeforeContinue hook and respect false return', async () => {
@@ -308,7 +312,7 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
@@ -342,8 +346,8 @@ describe('Generation Actions', () => {
       });
 
       expect(onBeforeContinue).toHaveBeenCalledWith('group-msg-1');
-      // Should not call internal_execAgentRuntime if hook returns false
-      expect(mockInternalExecAgentRuntime).not.toHaveBeenCalled();
+      // Should not call executeClientAgent if hook returns false
+      expect(mockExecuteClientAgent).not.toHaveBeenCalled();
     });
 
     it('should call onContinueComplete hook after continuation', async () => {
@@ -355,7 +359,8 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime.mockResolvedValue(undefined),
+        executeClientAgent: mockExecuteClientAgent.mockResolvedValue(undefined),
+        isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
       const onContinueComplete = vi.fn();
@@ -399,7 +404,7 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
@@ -424,7 +429,7 @@ describe('Generation Actions', () => {
 
       // Should not create operation if message not found
       expect(mockStartOperation).not.toHaveBeenCalled();
-      expect(mockInternalExecAgentRuntime).not.toHaveBeenCalled();
+      expect(mockExecuteClientAgent).not.toHaveBeenCalled();
     });
   });
 
@@ -444,7 +449,7 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
@@ -484,7 +489,7 @@ describe('Generation Actions', () => {
       expect(mockCompleteOperation).toHaveBeenCalledWith('test-op-id');
     });
 
-    it('should delete message BEFORE regeneration to prevent message not found issue (LOBE-2533)', async () => {
+    it('should delete message BEFORE regeneration to prevent message not found issue ()', async () => {
       // This test verifies the fix:
       // When "delete and regenerate" is called, if regeneration happens first,
       // it switches to a new branch, causing the original message to no longer
@@ -515,8 +520,8 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: vi.fn().mockImplementation(() => {
-          callOrder.push('internal_execAgentRuntime');
+        executeClientAgent: vi.fn().mockImplementation(() => {
+          callOrder.push('executeClientAgent');
           return Promise.resolve();
         }),
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
@@ -549,17 +554,17 @@ describe('Generation Actions', () => {
         await store.getState().delAndRegenerateMessage('msg-2');
       });
 
-      // CRITICAL: deleteMessage must be called BEFORE switchMessageBranch and internal_execAgentRuntime
+      // CRITICAL: deleteMessage must be called BEFORE switchMessageBranch and executeClientAgent
       // If regeneration (which calls switchMessageBranch) happens first, the message
       // won't be found in displayMessages and deletion will fail silently.
       expect(callOrder[0]).toBe('deleteMessage');
       expect(callOrder).toContain('switchMessageBranch');
-      expect(callOrder).toContain('internal_execAgentRuntime');
+      expect(callOrder).toContain('executeClientAgent');
 
       // Verify deleteMessage is called before any regeneration-related calls
       const deleteIndex = callOrder.indexOf('deleteMessage');
       const switchIndex = callOrder.indexOf('switchMessageBranch');
-      const execIndex = callOrder.indexOf('internal_execAgentRuntime');
+      const execIndex = callOrder.indexOf('executeClientAgent');
 
       expect(deleteIndex).toBeLessThan(switchIndex);
       expect(deleteIndex).toBeLessThan(execIndex);
@@ -619,7 +624,7 @@ describe('Generation Actions', () => {
         switchMessageBranch: mockSwitchMessageBranch,
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
@@ -673,7 +678,7 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
@@ -716,7 +721,7 @@ describe('Generation Actions', () => {
       });
     });
 
-    it('should pass context to internal_execAgentRuntime', async () => {
+    it('should pass context to executeClientAgent', async () => {
       // Re-setup mock with all required properties
       const { useChatStore } = await import('@/store/chat');
       vi.mocked(useChatStore.getState).mockReturnValue({
@@ -731,7 +736,7 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
@@ -755,8 +760,8 @@ describe('Generation Actions', () => {
         await store.getState().regenerateUserMessage('msg-1');
       });
 
-      // Should pass full context to internal_execAgentRuntime
-      expect(mockInternalExecAgentRuntime).toHaveBeenCalledWith(
+      // Should pass full context to executeClientAgent
+      expect(mockExecuteClientAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           context,
           parentMessageId: 'msg-1',
@@ -780,7 +785,7 @@ describe('Generation Actions', () => {
         startOperation: mockStartOperation,
         completeOperation: mockCompleteOperation,
         failOperation: mockFailOperation,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         isGatewayModeEnabled: mockIsGatewayModeEnabled,
       } as any);
 
@@ -826,7 +831,7 @@ describe('Generation Actions', () => {
         await store.getState().regenerateUserMessage('msg-1');
       });
 
-      expect(mockInternalExecAgentRuntime).toHaveBeenCalledWith(
+      expect(mockExecuteClientAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           initialContext: {
             initialContext: {
@@ -851,7 +856,7 @@ describe('Generation Actions', () => {
         failOperation: mockFailOperation,
         isGatewayModeEnabled: vi.fn(() => true),
         executeGatewayAgent: mockExecuteGatewayAgent,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         switchMessageBranch: mockSwitchMessageBranch,
       } as any);
 
@@ -888,8 +893,8 @@ describe('Generation Actions', () => {
         }),
       );
 
-      // Should NOT call client-mode internal_execAgentRuntime
-      expect(mockInternalExecAgentRuntime).not.toHaveBeenCalled();
+      // Should NOT call client-mode executeClientAgent
+      expect(mockExecuteClientAgent).not.toHaveBeenCalled();
 
       // regenerate operation stays running until onComplete is called
       expect(mockCompleteOperation).not.toHaveBeenCalled();
@@ -955,7 +960,7 @@ describe('Generation Actions', () => {
         failOperation: mockFailOperation,
         isGatewayModeEnabled: vi.fn(() => false),
         executeGatewayAgent: mockExecuteGatewayAgent,
-        internal_execAgentRuntime: mockInternalExecAgentRuntime,
+        executeClientAgent: mockExecuteClientAgent,
         switchMessageBranch: mockSwitchMessageBranch,
       } as any);
 
@@ -980,8 +985,8 @@ describe('Generation Actions', () => {
       // Should NOT call executeGatewayAgent
       expect(mockExecuteGatewayAgent).not.toHaveBeenCalled();
 
-      // Should call client-mode internal_execAgentRuntime
-      expect(mockInternalExecAgentRuntime).toHaveBeenCalled();
+      // Should call client-mode executeClientAgent
+      expect(mockExecuteClientAgent).toHaveBeenCalled();
     });
 
     it('should not regenerate if message is already loading', async () => {
@@ -1022,6 +1027,269 @@ describe('Generation Actions', () => {
 
       // Should not create operation if already regenerating
       expect(mockStartOperation).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
+  // CHARACTERIZATION TESTS (lifecycle refactor regression net)
+  //
+  // These lock the CURRENT behavior of the non-sendMessage entry points so an
+  // upcoming lifecycle refactor cannot silently change them. They assert what
+  // the code does NOW — including behavior that looks buggy (called out inline).
+  // ===========================================================================
+  describe('regenerate hetero branch characterization (lifecycle refactor regression net)', () => {
+    // The hetero regenerate path lives behind `runtimeType === 'hetero'`. We
+    // force that decision (it normally requires desktop + a local CLI provider)
+    // by stubbing `selectRuntimeType`, and supply a `heterogeneousProvider` via
+    // the agent config selector so the `runtimeType === 'hetero' && provider`
+    // guard passes.
+    const heterogeneousProvider = { type: 'claude-code' } as any;
+
+    const setupHeteroChatStore = async (overrides: Record<string, any> = {}) => {
+      const mockRefreshMessages = vi.fn().mockResolvedValue(undefined);
+      const mockInternalUpdateTopicLoading = vi.fn();
+      const mockAssociateMessageWithOperation = vi.fn();
+      const mockHeteroStartOperation = vi
+        .fn()
+        .mockReturnValueOnce({ operationId: 'regen-op-id' }) // parent regenerate op
+        .mockReturnValueOnce({ operationId: 'hetero-op-id' }); // child execHeterogeneousAgent op
+
+      const { useChatStore } = await import('@/store/chat');
+      vi.mocked(useChatStore.getState).mockReturnValue({
+        messagesMap: {},
+        operations: {},
+        operationsByMessage: {},
+        // topicSelectors.getTopicById reads topicDataMap during workingDirectory
+        // resolution; an empty map keeps the selector chain from throwing.
+        topicDataMap: {},
+
+        startOperation: mockHeteroStartOperation,
+        completeOperation: mockCompleteOperation,
+        failOperation: mockFailOperation,
+        isGatewayModeEnabled: vi.fn(() => false),
+        switchMessageBranch: mockSwitchMessageBranch,
+        refreshMessages: mockRefreshMessages,
+        internal_updateTopicLoading: mockInternalUpdateTopicLoading,
+        associateMessageWithOperation: mockAssociateMessageWithOperation,
+        executeClientAgent: mockExecuteClientAgent,
+        executeGatewayAgent: mockExecuteGatewayAgent,
+        ...overrides,
+      } as any);
+
+      return {
+        mockAssociateMessageWithOperation,
+        mockHeteroStartOperation,
+        mockInternalUpdateTopicLoading,
+        mockRefreshMessages,
+      };
+    };
+
+    let executeHeterogeneousAgentSpy: ReturnType<typeof vi.spyOn>;
+    let createMessageSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      // Force the hetero routing decision.
+      vi.spyOn(agentDispatcher, 'selectRuntimeType').mockReturnValue('hetero');
+      // Supply a config that carries the hetero provider used by the branch.
+      vi.spyOn(agentSelectors, 'getAgentConfigById').mockReturnValue(
+        () => ({ agencyConfig: { heterogeneousProvider } }) as any,
+      );
+
+      createMessageSpy = vi
+        .spyOn(messageService, 'createMessage')
+        .mockResolvedValue({ id: 'hetero-assistant-msg', messages: [] } as any) as any;
+
+      executeHeterogeneousAgentSpy = vi
+        .spyOn(heterogeneousAgentExecutor, 'executeHeterogeneousAgent')
+        .mockResolvedValue(undefined) as any;
+    });
+
+    it('routes regenerateUserMessage through executeHeterogeneousAgent with imageList + parentOperationId', async () => {
+      const { mockRefreshMessages } = await setupHeteroChatStore();
+
+      const context: ConversationContext = {
+        agentId: 'session-1',
+        topicId: 'topic-1',
+        threadId: null,
+      };
+
+      const store = createStore({ context });
+
+      const originalImageList = [{ id: 'img-1', url: 'data:image/png;base64,xxx' }];
+      act(() => {
+        store.setState({
+          displayMessages: [
+            {
+              id: 'msg-1',
+              role: 'user',
+              content: 'Draw a cat',
+              imageList: originalImageList,
+            },
+          ],
+        } as any);
+      });
+
+      await act(async () => {
+        await store.getState().regenerateUserMessage('msg-1');
+      });
+
+      // A fresh assistant row is created branched off the user message.
+      expect(createMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parentId: 'msg-1',
+          role: 'assistant',
+          provider: 'claude-code',
+        }),
+      );
+
+      // Store is refreshed so the loading bubble shows while the CLI streams.
+      expect(mockRefreshMessages).toHaveBeenCalled();
+
+      // The executor receives the new assistant row id, the original user
+      // message's images, the original prompt, and the child hetero op id.
+      expect(executeHeterogeneousAgentSpy).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({
+          assistantMessageId: 'hetero-assistant-msg',
+          heterogeneousProvider,
+          imageList: originalImageList,
+          message: 'Draw a cat',
+          operationId: 'hetero-op-id',
+        }),
+      );
+    });
+
+    it('creates the child execHeterogeneousAgent op as a child of the parent regenerate op', async () => {
+      const { mockHeteroStartOperation, mockAssociateMessageWithOperation } =
+        await setupHeteroChatStore();
+
+      const context: ConversationContext = {
+        agentId: 'session-1',
+        topicId: 'topic-1',
+        threadId: null,
+      };
+
+      const store = createStore({ context });
+
+      act(() => {
+        store.setState({
+          displayMessages: [{ id: 'msg-1', role: 'user', content: 'Hello' }],
+        } as any);
+      });
+
+      await act(async () => {
+        await store.getState().regenerateUserMessage('msg-1');
+      });
+
+      // First op: the regenerate op for the user message.
+      expect(mockHeteroStartOperation).toHaveBeenNthCalledWith(1, {
+        context: { ...context, messageId: 'msg-1' },
+        type: 'regenerate',
+      });
+
+      // Second op: the execHeterogeneousAgent op parented to the regenerate op.
+      expect(mockHeteroStartOperation).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          parentOperationId: 'regen-op-id',
+          type: 'execHeterogeneousAgent',
+        }),
+      );
+
+      // The new assistant row is associated with the child hetero op.
+      expect(mockAssociateMessageWithOperation).toHaveBeenCalledWith(
+        'hetero-assistant-msg',
+        'hetero-op-id',
+      );
+    });
+
+    it('CURRENT BEHAVIOR: completes the regenerate op AND calls onRegenerateComplete in the hetero branch', async () => {
+      // NOTE: This characterizes the actual current behavior of the hetero
+      // branch (action.ts ~548-549): after `runHeterogeneousFromExistingMessage`
+      // resolves it DOES call `completeOperation(operationId)` and DOES invoke
+      // `hooks.onRegenerateComplete(messageId)` — synchronously, unlike the
+      // gateway branch which defers both to an async `onComplete` callback.
+      // Locked here so the refactor cannot silently flip this without a failing
+      // test forcing a deliberate decision.
+      const { mockHeteroStartOperation } = await setupHeteroChatStore();
+      void mockHeteroStartOperation;
+
+      const onRegenerateComplete = vi.fn();
+      const context: ConversationContext = {
+        agentId: 'session-1',
+        topicId: 'topic-1',
+        threadId: null,
+      };
+
+      const store = createStore({ context, hooks: { onRegenerateComplete } });
+
+      act(() => {
+        store.setState({
+          displayMessages: [{ id: 'msg-1', role: 'user', content: 'Hello' }],
+        } as any);
+      });
+
+      await act(async () => {
+        await store.getState().regenerateUserMessage('msg-1');
+      });
+
+      // The parent regenerate op is completed synchronously after the executor.
+      expect(mockCompleteOperation).toHaveBeenCalledWith('regen-op-id');
+      // And the hook fires synchronously (no deferred onComplete like gateway).
+      expect(onRegenerateComplete).toHaveBeenCalledWith('msg-1');
+    });
+  });
+
+  describe('continue hetero early-return characterization (lifecycle refactor regression net)', () => {
+    // continueGenerationMessage bails out early for hetero agents (action.ts
+    // ~336): CLIs have no "continue a cut-off response" primitive, so the
+    // button is a documented no-op. Lock that no runtime is dispatched.
+    beforeEach(() => {
+      vi.spyOn(agentDispatcher, 'selectRuntimeType').mockReturnValue('hetero');
+      vi.spyOn(agentSelectors, 'getAgentConfigById').mockReturnValue(
+        () =>
+          ({
+            agencyConfig: { heterogeneousProvider: { type: 'claude-code' } },
+          }) as any,
+      );
+    });
+
+    it('returns early without starting an operation or dispatching any runtime', async () => {
+      const { useChatStore } = await import('@/store/chat');
+      vi.mocked(useChatStore.getState).mockReturnValue({
+        messagesMap: {},
+        operations: {},
+        operationsByMessage: {},
+        startOperation: mockStartOperation,
+        completeOperation: mockCompleteOperation,
+        failOperation: mockFailOperation,
+        executeClientAgent: mockExecuteClientAgent,
+        executeGatewayAgent: mockExecuteGatewayAgent,
+        isGatewayModeEnabled: vi.fn(() => false),
+      } as any);
+
+      const context: ConversationContext = {
+        agentId: 'session-1',
+        topicId: 'topic-1',
+        threadId: null,
+      };
+
+      const store = createStore({ context });
+
+      act(() => {
+        store.setState({
+          displayMessages: [{ id: 'block-1', role: 'assistant', content: 'partial' }],
+        } as any);
+      });
+
+      await act(async () => {
+        await store.getState().continueGenerationMessage('block-1', 'block-1');
+      });
+
+      // Hetero short-circuits BEFORE creating the continue operation.
+      expect(mockStartOperation).not.toHaveBeenCalled();
+      expect(mockExecuteClientAgent).not.toHaveBeenCalled();
+      expect(mockExecuteGatewayAgent).not.toHaveBeenCalled();
     });
   });
 });

@@ -13,6 +13,22 @@ describe('isNonRetryableRequestError', () => {
     ).toBe(true);
   });
 
+  it('returns true for terminal image generation errors', () => {
+    expect(
+      isNonRetryableRequestError({
+        error: { message: 'Google image generation was blocked by content policy.' },
+        errorType: AgentRuntimeErrorType.ProviderContentPolicyViolation,
+      }),
+    ).toBe(true);
+
+    expect(
+      isNonRetryableRequestError({
+        error: { message: 'The provider did not return an image.' },
+        errorType: AgentRuntimeErrorType.ProviderNoImageGenerated,
+      }),
+    ).toBe(true);
+  });
+
   it('returns true for invalid request payload errors', () => {
     expect(
       isNonRetryableRequestError({
@@ -32,6 +48,37 @@ describe('isNonRetryableRequestError', () => {
         error: {
           message:
             "Invalid schema for response_format 'json_schema': schema must be a JSON Schema.",
+        },
+        errorType: AgentRuntimeErrorType.ProviderBizError,
+      }),
+    ).toBe(true);
+  });
+
+  it('returns true for unsupported model parameter errors', () => {
+    expect(
+      isNonRetryableRequestError({
+        error: {
+          error: {
+            code: 'bad_response_status_code',
+            message: 'Model grok-4.20-0309-reasoning does not support parameter presencePenalty.',
+            param: '400',
+            type: 'upstream_error',
+          },
+          message: '400 Model grok-4.20-0309-reasoning does not support parameter presencePenalty.',
+        },
+        errorType: AgentRuntimeErrorType.ProviderBizError,
+      }),
+    ).toBe(true);
+  });
+
+  it('returns true for assistant prefill request-shape errors', () => {
+    expect(
+      isNonRetryableRequestError({
+        error: {
+          body: { httpStatusCode: 400 },
+          message:
+            'This model does not support assistant message prefill. The conversation must end with a user message.',
+          type: 'ValidationException',
         },
         errorType: AgentRuntimeErrorType.ProviderBizError,
       }),

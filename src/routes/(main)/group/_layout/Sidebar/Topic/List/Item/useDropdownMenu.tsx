@@ -1,11 +1,13 @@
 import type { ChatTopicStatus } from '@lobechat/types';
 import { type MenuProps } from '@lobehub/ui';
 import { Icon } from '@lobehub/ui';
+import { confirmModal } from '@lobehub/ui/base-ui';
 import { App } from 'antd';
 import {
   CheckCircle2,
   Circle,
   ExternalLink,
+  Hash,
   Link2,
   LucideCopy,
   PanelTop,
@@ -15,11 +17,11 @@ import {
 } from 'lucide-react';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 
 import { isDesktop } from '@/const/version';
-import { pluginRegistry } from '@/features/Electron/titlebar/RecentlyViewed/plugins';
+import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useAppOrigin } from '@/hooks/useAppOrigin';
+import { usePermission } from '@/hooks/usePermission';
 import { useAgentGroupStore } from '@/store/agentGroup';
 import { useChatStore } from '@/store/chat';
 import { useElectronStore } from '@/store/electron';
@@ -37,8 +39,10 @@ export const useTopicItemDropdownMenu = ({
   toggleEditing,
 }: TopicItemDropdownMenuProps): (() => MenuProps['items']) => {
   const { t } = useTranslation(['topic', 'common']);
-  const { modal, message } = App.useApp();
-  const navigate = useNavigate();
+  const { message } = App.useApp();
+  const navigate = useWorkspaceAwareNavigate();
+  const { allowed: canCreateTopic } = usePermission('create_content');
+  const { allowed: canEditTopic } = usePermission('edit_own_content');
 
   const openGroupTopicInNewWindow = useGlobalStore((s) => s.openGroupTopicInNewWindow);
   const activeGroupId = useAgentGroupStore((s) => s.activeGroupId);
@@ -66,6 +70,7 @@ export const useTopicItemDropdownMenu = ({
 
     return [
       {
+        disabled: !canEditTopic,
         icon: <Icon icon={isCompleted ? Circle : CheckCircle2} />,
         key: 'markCompleted',
         label: isCompleted ? t('actions.unmarkCompleted') : t('actions.markCompleted'),
@@ -81,6 +86,7 @@ export const useTopicItemDropdownMenu = ({
         type: 'divider' as const,
       },
       {
+        disabled: !canEditTopic,
         icon: <Icon icon={Wand2} />,
         key: 'autoRename',
         label: t('actions.autoRename'),
@@ -89,6 +95,7 @@ export const useTopicItemDropdownMenu = ({
         },
       },
       {
+        disabled: !canEditTopic,
         icon: <Icon icon={PencilLine} />,
         key: 'rename',
         label: t('rename', { ns: 'common' }),
@@ -108,11 +115,8 @@ export const useTopicItemDropdownMenu = ({
               onClick: () => {
                 if (!activeGroupId) return;
                 const url = `/group/${activeGroupId}?topic=${id}`;
-                const reference = pluginRegistry.parseUrl(`/group/${activeGroupId}`, `topic=${id}`);
-                if (reference) {
-                  addTab(reference);
-                  navigate(url);
-                }
+                addTab(url);
+                navigate(url);
               },
             },
             {
@@ -129,6 +133,15 @@ export const useTopicItemDropdownMenu = ({
           ]
         : []),
       {
+        icon: <Icon icon={Hash} />,
+        key: 'copySessionId',
+        label: t('actions.copySessionId'),
+        onClick: () => {
+          navigator.clipboard.writeText(id);
+          message.success(t('actions.copySessionIdSuccess'));
+        },
+      },
+      {
         icon: <Icon icon={Link2} />,
         key: 'copyLink',
         label: t('actions.copyLink'),
@@ -140,6 +153,7 @@ export const useTopicItemDropdownMenu = ({
         },
       },
       {
+        disabled: !canCreateTopic,
         icon: <Icon icon={LucideCopy} />,
         key: 'duplicate',
         label: t('actions.duplicate'),
@@ -152,17 +166,20 @@ export const useTopicItemDropdownMenu = ({
       },
       {
         danger: true,
+        disabled: !canEditTopic,
         icon: <Icon icon={Trash} />,
         key: 'delete',
         label: t('delete', { ns: 'common' }),
         onClick: () => {
-          modal.confirm({
-            centered: true,
+          confirmModal({
+            cancelText: t('cancel', { ns: 'common' }),
+            content: t('actions.confirmRemoveTopic'),
             okButtonProps: { danger: true },
+            okText: t('delete', { ns: 'common' }),
             onOk: async () => {
               await removeTopic(id);
             },
-            title: t('actions.confirmRemoveTopic'),
+            title: t('delete', { ns: 'common' }),
           });
         },
       },
@@ -170,6 +187,8 @@ export const useTopicItemDropdownMenu = ({
   }, [
     id,
     isCompleted,
+    canCreateTopic,
+    canEditTopic,
     activeGroupId,
     appOrigin,
     autoRenameTopicTitle,
@@ -182,7 +201,6 @@ export const useTopicItemDropdownMenu = ({
     navigate,
     toggleEditing,
     t,
-    modal,
     message,
   ]);
 };

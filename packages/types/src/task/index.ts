@@ -1,4 +1,5 @@
 import type { BriefArtifacts } from '../brief';
+import type { ChatFileItem } from '../message/ui/chat';
 
 // ── Task type aliases ──
 
@@ -128,6 +129,7 @@ export interface TaskItem {
   createdByUserId: string;
   currentTopicId: string | null;
   description: string | null;
+  editorData: unknown;
   error: string | null;
   heartbeatInterval: number | null;
   heartbeatTimeout: number | null;
@@ -147,6 +149,7 @@ export interface TaskItem {
   status: string;
   totalTopics: number | null;
   updatedAt: Date;
+  workspaceId: string | null;
 }
 
 export type TaskListItem = TaskItem & {
@@ -166,6 +169,7 @@ export interface NewTask {
   createdByUserId: string;
   currentTopicId?: string | null;
   description?: string | null;
+  editorData?: unknown;
   error?: string | null;
   heartbeatInterval?: number | null;
   heartbeatTimeout?: number | null;
@@ -185,6 +189,7 @@ export interface NewTask {
   status?: string;
   totalTopics?: number | null;
   updatedAt?: Date;
+  workspaceId?: string | null;
 }
 
 // ── Task Detail (shared across CLI, viewTask tool, task.detail router) ──
@@ -236,8 +241,9 @@ export interface TaskDetailActivityAgent {
 
 export interface TaskDetailActivity {
   actions?: unknown;
+  /** Brief-only: avatar of the agent that produced this brief; `null` when the agent is unknown or has been deleted. */
+  agent?: TaskDetailActivityAgent | null;
   agentId?: string | null;
-  agents?: TaskDetailActivityAgent[];
   artifacts?: BriefArtifacts | null;
   author?: TaskDetailActivityAuthor;
   briefType?: string;
@@ -250,6 +256,10 @@ export interface TaskDetailActivity {
   content?: string;
   createdAt?: string;
   cronJobId?: string | null;
+  /** Comment-only: rich Lexical JSON state. When present, supersedes `content` for rendering. */
+  editorData?: unknown;
+  /** Comment-only: files attached to this comment for rendering in the UI. */
+  files?: ChatFileItem[];
   id?: string;
   /**
    * Topic-only: persisted Gateway operation ID for the task topic, sourced
@@ -295,7 +305,11 @@ export interface TaskDetailData {
   createdAt?: string;
   dependencies?: Array<{ dependsOn: string; type: string }>;
   description?: string | null;
+  /** Rich-editor JSON state for the instruction; preserves details markdown drops (image size, etc.). */
+  editorData?: unknown;
   error?: string | null;
+  /** Files attached to the task instruction (persistent context for every run). */
+  files?: ChatFileItem[];
   // heartbeat.interval: periodic execution interval | heartbeat.timeout+lastAt: watchdog monitoring (detects stuck tasks)
   heartbeat?: {
     interval?: number | null;
@@ -305,7 +319,7 @@ export interface TaskDetailData {
   identifier: string;
   instruction: string;
   name?: string | null;
-  parent?: { identifier: string; name: string | null } | null;
+  parent?: { agentId?: string | null; identifier: string; name: string | null } | null;
   priority?: number | null;
   review?: Record<string, any> | null;
   schedule?: {
@@ -318,4 +332,6 @@ export interface TaskDetailData {
   topicCount?: number;
   userId?: string | null;
   workspace?: TaskDetailWorkspaceNode[];
+  /** Owning workspace; null for personal (non-workspace) tasks. */
+  workspaceId?: string | null;
 }

@@ -1,71 +1,106 @@
 /**
  * @vitest-environment happy-dom
  */
-import { render, screen } from '@testing-library/react';
-import type { ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
-
-vi.mock('@lobehub/ui', () => ({
-  Avatar: ({ avatar }: { avatar: string }) => <div>{avatar}</div>,
-  Flexbox: ({ children }: { children?: ReactNode; [key: string]: unknown }) => (
-    <div>{children}</div>
-  ),
-  Text: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
-    <span {...props}>{children}</span>
-  ),
-}));
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
+    i18n: { language: 'en-US' },
     t: (key: string) =>
       (
         ({
-          'tool.intervention.onboarding.agentIdentity.applyHint':
-            'The new identity will appear after approval.',
-          'tool.intervention.onboarding.agentIdentity.description':
-            'Approving this change updates the Agent shown in Inbox and in this onboarding conversation.',
-          'tool.intervention.onboarding.agentIdentity.emoji': 'Agent avatar',
-          'tool.intervention.onboarding.agentIdentity.eyebrow': 'Onboarding approval',
-          'tool.intervention.onboarding.agentIdentity.name': 'Agent name',
-          'tool.intervention.onboarding.agentIdentity.targetInbox': 'Inbox Agent',
-          'tool.intervention.onboarding.agentIdentity.targetOnboarding': 'Current onboarding Agent',
-          'tool.intervention.onboarding.agentIdentity.targets': 'Applies to',
-          'tool.intervention.onboarding.agentIdentity.title': 'Confirm Agent identity update',
-          'untitledAgent': 'Untitled Agent',
+          'tool.intervention.onboarding.agentIdentity.editHint':
+            'Not what you wanted? Click the avatar or name to edit directly.',
+          'tool.intervention.onboarding.agentIdentity.namePlaceholder': 'Agent name',
+          'tool.intervention.onboarding.agentIdentity.title': "I'll update my name and avatar",
+          'tool.intervention.onboarding.agentIdentity.titleAvatarOnly': "I'll update my avatar",
+          'tool.intervention.onboarding.agentIdentity.titleNameOnly': "I'll update my name",
         }) satisfies Record<string, string>
       )[key] || key,
   }),
 }));
 
-const expectTranslationText = (translatedText: string, translationKey: string) => {
-  expect(
-    screen.queryByText(translatedText) ?? screen.queryByText(translationKey),
-  ).toBeInTheDocument();
-};
-
 describe('web onboarding intervention registry', () => {
-  it('renders the custom agent identity approval card for saveUserQuestion', async () => {
+  let Component: ReturnType<typeof Object> | undefined;
+
+  beforeAll(async () => {
     const { WebOnboardingInterventions } =
       await import('@lobechat/builtin-tool-web-onboarding/client');
     const { WebOnboardingApiName } = await import('@lobechat/builtin-tool-web-onboarding');
-
-    const Component = WebOnboardingInterventions[WebOnboardingApiName.saveUserQuestion];
-
+    Component = WebOnboardingInterventions[WebOnboardingApiName.saveUserQuestion];
     expect(Component).toBeDefined();
+  }, 30_000);
+
+  it('uses the combined title when both agentName and agentEmoji are pending', () => {
     if (!Component) throw new TypeError('Expected web onboarding intervention to be registered');
 
     render(<Component args={{ agentEmoji: '🛰️', agentName: 'Atlas' }} messageId="message-1" />);
 
-    expectTranslationText(
-      'Confirm Agent identity update',
-      'tool.intervention.onboarding.agentIdentity.title',
+    expect(screen.getByText("I'll update my name and avatar")).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Atlas')).toBeInTheDocument();
+    expect(screen.getByAltText('🛰️')).toBeInTheDocument();
+  });
+
+  it('uses the name-only title when only agentName is pending', () => {
+    if (!Component) throw new TypeError('Expected web onboarding intervention to be registered');
+
+    render(<Component args={{ agentName: 'Atlas' }} messageId="message-2" />);
+
+    expect(screen.getByText("I'll update my name")).toBeInTheDocument();
+    expect(screen.queryByText("I'll update my name and avatar")).not.toBeInTheDocument();
+  });
+
+  it('uses the avatar-only title when only agentEmoji is pending', () => {
+    if (!Component) throw new TypeError('Expected web onboarding intervention to be registered');
+
+    render(<Component args={{ agentEmoji: '🛰️' }} messageId="message-3" />);
+
+    expect(screen.getByText("I'll update my avatar")).toBeInTheDocument();
+    expect(screen.queryByText("I'll update my name and avatar")).not.toBeInTheDocument();
+  });
+
+  it('flips title to combined when user types a name into an emoji-only proposal', () => {
+    if (!Component) throw new TypeError('Expected web onboarding intervention to be registered');
+
+    render(<Component args={{ agentEmoji: '🛰️' }} messageId="message-4" />);
+
+    expect(screen.getByText("I'll update my avatar")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('Agent name'), { target: { value: 'Atlas' } });
+    expect(screen.getByText("I'll update my name and avatar")).toBeInTheDocument();
+  });
+
+  it('flushes edited name and preserves emoji when approve is requested', async () => {
+    if (!Component) throw new TypeError('Expected web onboarding intervention to be registered');
+
+    const onArgsChange = vi.fn();
+    let beforeApproveCallback: (() => Promise<void>) | undefined;
+    const registerBeforeApprove = (_id: string, callback: () => Promise<void>) => {
+      beforeApproveCallback = callback;
+      return () => {
+        beforeApproveCallback = undefined;
+      };
+    };
+
+    render(
+      <Component
+        args={{ agentEmoji: '🛰️', agentName: 'Atlas' }}
+        messageId="message-5"
+        registerBeforeApprove={registerBeforeApprove}
+        onArgsChange={onArgsChange}
+      />,
     );
-    expect(screen.getAllByText('Atlas')).toHaveLength(2);
-    expect(screen.getAllByText('🛰️')).toHaveLength(2);
-    expectTranslationText('Inbox Agent', 'tool.intervention.onboarding.agentIdentity.targetInbox');
-    expectTranslationText(
-      'Current onboarding Agent',
-      'tool.intervention.onboarding.agentIdentity.targetOnboarding',
-    );
+
+    fireEvent.change(screen.getByPlaceholderText('Agent name'), {
+      target: { value: 'Aurora' },
+    });
+
+    expect(beforeApproveCallback).toBeTypeOf('function');
+    await beforeApproveCallback!();
+
+    expect(onArgsChange).toHaveBeenCalledWith({
+      agentEmoji: '🛰️',
+      agentName: 'Aurora',
+    });
   });
 });

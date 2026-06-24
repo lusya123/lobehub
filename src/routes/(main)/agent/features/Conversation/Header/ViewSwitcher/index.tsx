@@ -5,13 +5,13 @@ import { createStaticStyles } from 'antd-style';
 import { FileText, MessageSquareText } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router';
 
 import { SESSION_CHAT_TOPIC_PAGE_URL, SESSION_CHAT_TOPIC_URL } from '@/const/url';
+import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
-import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
 type ViewTab = 'chat' | 'page' | 'task';
 
@@ -53,11 +53,10 @@ const styles = createStaticStyles(({ css }) => ({
 
 const ViewSwitcher = memo(() => {
   const { t } = useTranslation('chat');
-  const navigate = useNavigate();
+  const navigate = useWorkspaceAwareNavigate();
   const location = useLocation();
   const params = useParams<{ aid?: string; topicId?: string }>();
   const activeTopicId = useChatStore((s) => s.activeTopicId);
-  const enableAgentTask = useServerConfigStore((s) => featureFlagsSelectors(s).enableAgentTask);
   const isHeterogeneousAgent = useAgentStore(agentSelectors.isCurrentAgentHeterogeneous);
 
   const aid = params.aid;
@@ -123,7 +122,7 @@ const ViewSwitcher = memo(() => {
     }
   };
 
-  if (!topicId || !enableAgentTask || isHeterogeneousAgent) return null;
+  if (!topicId || isHeterogeneousAgent) return null;
 
   return (
     <Segmented

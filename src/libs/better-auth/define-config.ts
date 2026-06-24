@@ -1,6 +1,5 @@
 import { expo } from '@better-auth/expo';
 import { passkey } from '@better-auth/passkey';
-import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { createNanoId, idGenerator, serverDB } from '@lobechat/database';
 import * as schema from '@lobechat/database/schemas';
 import bcrypt from 'bcryptjs';
@@ -10,11 +9,8 @@ import { type BetterAuthOptions } from 'better-auth/minimal';
 import { betterAuth } from 'better-auth/minimal';
 import { admin, emailOTP, genericOAuth, magicLink } from 'better-auth/plugins';
 import { type BetterAuthPlugin } from 'better-auth/types';
-import { emailHarmony } from 'better-auth-harmony';
-import { validateEmail } from 'better-auth-harmony/email';
 import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
-import { businessEmailValidator } from '@/business/server/better-auth';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import { provisionSub2ApiFromAccount } from '@/libs/auth/sub2api-provision';
@@ -85,10 +81,6 @@ const enabledSSOProviders = parseSSOProviders(authEnv.AUTH_SSO_PROVIDERS);
 
 const { socialProviders, genericOAuthProviders } = initBetterAuthSSOProviders();
 
-async function customEmailValidator(email: string): Promise<boolean> {
-  return ENABLE_BUSINESS_FEATURES ? businessEmailValidator(email) : validateEmail(email);
-}
-
 interface CustomBetterAuthOptions {
   plugins: BetterAuthPlugin[];
 }
@@ -114,6 +106,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       maxPasswordLength: 64,
       minPasswordLength: 8,
       requireEmailVerification: authEnv.AUTH_EMAIL_VERIFICATION,
+      revokeSessionsOnPasswordReset: true,
 
       // Compatible with bcrypt password hashes migrated from Clerk; after login, you can re-hash in the backend using BetterAuth's default scrypt.
       password: {
@@ -276,7 +269,6 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
       ...customOptions.plugins,
       emailWhitelist(),
       expo(),
-      emailHarmony({ allowNormalizedSignin: false, validator: customEmailValidator }),
       admin(),
       // Email OTP plugin for mobile verification
       emailOTP({

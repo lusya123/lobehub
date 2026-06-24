@@ -2,18 +2,27 @@
 
 import type { ConversationContext } from '@lobechat/types';
 import type { DropdownItem } from '@lobehub/ui';
-import { ActionIcon, copyToClipboard, Drawer, DropdownMenu, Flexbox, Text } from '@lobehub/ui';
+import {
+  ActionIcon,
+  copyToClipboard,
+  Drawer,
+  DropdownMenu,
+  Flexbox,
+  Freeze,
+  Text,
+} from '@lobehub/ui';
 import { cssVar } from 'antd-style';
 import { Copy, MoreHorizontal, Share2 } from 'lucide-react';
-import dynamic from 'next/dynamic';
 import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ChatList, ConversationProvider, MessageItem } from '@/features/Conversation';
 import { TaskCardScopeProvider } from '@/features/Conversation/Markdown/plugins/Task';
 import { useShareModal } from '@/features/ShareModal';
+import { LazySharePopover as SharePopover } from '@/features/SharePopover/lazy';
 import { useGatewayReconnect } from '@/hooks/useGatewayReconnect';
 import { useOperationState } from '@/hooks/useOperationState';
+import { usePermission } from '@/hooks/usePermission';
 import { useAgentStore } from '@/store/agent';
 import { useChatStore } from '@/store/chat';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -27,15 +36,12 @@ import { authSelectors } from '@/store/user/selectors';
 import TopicStatusIcon from '../TopicStatusIcon';
 import FeedbackInput from './FeedbackInput';
 
-const SharePopover = dynamic(() => import('@/features/SharePopover'));
-
 interface TopicChatDrawerBodyProps {
   agentId: string;
-  taskId: string;
   topicId: string;
 }
 
-const TopicChatDrawerBody = memo<TopicChatDrawerBodyProps>(({ agentId, taskId, topicId }) => {
+const TopicChatDrawerBody = memo<TopicChatDrawerBodyProps>(({ agentId, topicId }) => {
   const isLogin = useUserStore(authSelectors.isLogin);
   const useHydrateAgentConfig = useAgentStore((s) => s.useHydrateAgentConfig);
 
@@ -59,18 +65,7 @@ const TopicChatDrawerBody = memo<TopicChatDrawerBodyProps>(({ agentId, taskId, t
   const runningOperation = useTaskStore(
     (s) => taskActivitySelectors.activeDrawerTopicActivity(s)?.runningOperation,
   );
-  const topicStatus = useTaskStore(
-    (s) => taskActivitySelectors.activeDrawerTopicActivity(s)?.status,
-  );
   useGatewayReconnect(topicId, runningOperation);
-
-  // Only allow feedback when the topic run has terminated. While the topic is
-  // pending/running, a feedback comment can't safely steer the in-flight run.
-  const canLeaveFeedback =
-    topicStatus === 'completed' ||
-    topicStatus === 'failed' ||
-    topicStatus === 'canceled' ||
-    topicStatus === 'timeout';
 
   const itemContent = useCallback(
     (index: number, id: string) => (
@@ -100,11 +95,9 @@ const TopicChatDrawerBody = memo<TopicChatDrawerBodyProps>(({ agentId, taskId, t
           <Flexbox flex={1} style={{ minHeight: 0, overflow: 'hidden' }}>
             <ChatList disableActionsBar itemContent={itemContent} />
           </Flexbox>
-          {canLeaveFeedback && (
-            <Flexbox padding={12} style={{ flexShrink: 0 }}>
-              <FeedbackInput taskId={taskId} topicId={topicId} />
-            </Flexbox>
-          )}
+          <Flexbox paddingBlock={'0 12px'} paddingInline={12} style={{ flexShrink: 0 }}>
+            <FeedbackInput />
+          </Flexbox>
         </Flexbox>
       </TaskCardScopeProvider>
     </ConversationProvider>
@@ -122,6 +115,7 @@ const TopicChatDrawer = memo(() => {
   const closeTopicDrawer = useTaskStore((s) => s.closeTopicDrawer);
   const useFetchTaskDetail = useTaskStore((s) => s.useFetchTaskDetail);
   const enableTopicLinkShare = useServerConfigStore(serverConfigSelectors.enableBusinessFeatures);
+  const { allowed: canShare, reason } = usePermission('edit_own_content');
 
   // Hydrate task detail when the drawer is opened outside of TaskDetailPage
   // (e.g. from a brief on home) so the header has agentId / status / seq.
@@ -150,14 +144,14 @@ const TopicChatDrawer = memo(() => {
         disabled: !topicId,
         icon: Copy,
         key: 'copyTopicId',
-        label: t('taskDetail.topicMenu.copyId', { defaultValue: 'Copy topic ID' }),
+        label: t('taskDetail.topicMenu.copyId', { defaultValue: 'Copy Topic ID' }),
         onClick: handleCopyTopicId,
       },
       {
         disabled: !activity?.operationId,
         icon: Copy,
         key: 'copyOperationId',
-        label: t('taskDetail.topicMenu.copyOperationId', { defaultValue: 'Copy operation ID' }),
+        label: t('taskDetail.topicMenu.copyOperationId', { defaultValue: 'Copy Operation ID' }),
         onClick: handleCopyOperationId,
       },
     ],
@@ -183,15 +177,16 @@ const TopicChatDrawer = memo(() => {
 
   const shareIcon = (
     <ActionIcon
+      disabled={!canShare}
       icon={Share2}
       size={'small'}
-      title={t('share', { ns: 'common' })}
-      onClick={enableTopicLinkShare ? undefined : openShareModal}
+      title={canShare ? t('share', { ns: 'common' }) : reason}
+      onClick={enableTopicLinkShare || !canShare ? undefined : openShareModal}
     />
   );
 
   const extra = topicId ? (
-    enableTopicLinkShare ? (
+    enableTopicLinkShare && canShare ? (
       <SharePopover topicId={topicId} onOpenModal={openShareModal}>
         {shareIcon}
       </SharePopover>
@@ -200,17 +195,20 @@ const TopicChatDrawer = memo(() => {
     )
   ) : null;
 
+  // Freeze title/extra/body during the close animation so the drawer keeps
+  // its last rendered state instead of flashing to the empty/"untitled" view
+  // while topicId/agentId clear.
   return (
     <Drawer
       destroyOnHidden
       containerMaxWidth={'auto'}
-      extra={extra}
+      extra={<Freeze frozen={!open}>{extra}</Freeze>}
       getContainer={false}
       mask={false}
       open={open}
       placement={'right'}
       push={false}
-      title={title}
+      title={<Freeze frozen={!open}>{title}</Freeze>}
       width={640}
       styles={{
         body: { padding: 0 },
@@ -228,9 +226,9 @@ const TopicChatDrawer = memo(() => {
       }}
       onClose={closeTopicDrawer}
     >
-      {open && activeTaskId && (
-        <TopicChatDrawerBody agentId={agentId!} taskId={activeTaskId} topicId={topicId!} />
-      )}
+      <Freeze frozen={!open}>
+        {open && activeTaskId && <TopicChatDrawerBody agentId={agentId!} topicId={topicId!} />}
+      </Freeze>
     </Drawer>
   );
 });

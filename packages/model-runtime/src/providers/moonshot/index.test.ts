@@ -11,6 +11,14 @@ import {
   params,
 } from './index';
 
+const { loadModelsMock } = vi.hoisted(() => ({
+  loadModelsMock: vi.fn(),
+}));
+
+vi.mock('@lobechat/business-model-bank/model-config', () => ({
+  loadModels: loadModelsMock,
+}));
+
 const defaultOpenAIBaseURL = 'https://api.moonshot.cn/v1';
 const anthropicBaseURL = 'https://api.moonshot.cn/anthropic';
 
@@ -18,35 +26,112 @@ const anthropicBaseURL = 'https://api.moonshot.cn/anthropic';
 vi.spyOn(console, 'error').mockImplementation(() => {});
 vi.spyOn(console, 'warn').mockImplementation(() => {});
 
+beforeEach(() => {
+  loadModelsMock.mockResolvedValue([]);
+});
+
 describe('LobeMoonshotAI', () => {
+  const createRuntime = ({
+    baseURL,
+    sdkType,
+  }: {
+    baseURL?: string;
+    sdkType?: string;
+  } = {}) =>
+    new LobeMoonshotAI({
+      apiKey: 'test',
+      ...(baseURL ? { baseURL } : {}),
+      ...(sdkType ? { sdkType } : {}),
+    });
+
+  const resolveRouter = async (baseURL?: string, sdkType?: string) => {
+    const runtime = createRuntime({ baseURL, sdkType });
+
+    return (runtime as any).resolveMatchedRouter('moonshot-v1-8k');
+  };
+
+  const resolveFirstRouterOption = async (baseURL: string, sdkType: string) => {
+    const runtime = createRuntime({ baseURL, sdkType });
+    const router = await (runtime as any).resolveMatchedRouter('moonshot-v1-8k');
+    const routerOptions = (runtime as any).normalizeRouterOptions(router);
+
+    return {
+      option: routerOptions[0],
+      router,
+    };
+  };
+
   describe('RouterRuntime baseURL routing', () => {
     it('should route to OpenAI format by default', async () => {
-      const runtime = new LobeMoonshotAI({ apiKey: 'test' });
-      expect(runtime).toBeInstanceOf(LobeMoonshotAI);
+      const router = await resolveRouter();
+
+      expect(router.apiType).toBe('openai');
+      expect(router.runtime).toBe(LobeMoonshotOpenAI);
     });
 
     it('should route to OpenAI format when baseURL ends with /v1', async () => {
-      const runtime = new LobeMoonshotAI({
-        apiKey: 'test',
-        baseURL: 'https://api.moonshot.cn/v1',
-      });
-      expect(runtime).toBeInstanceOf(LobeMoonshotAI);
+      const router = await resolveRouter(defaultOpenAIBaseURL);
+
+      expect(router.apiType).toBe('openai');
+      expect(router.runtime).toBe(LobeMoonshotOpenAI);
     });
 
     it('should route to Anthropic format when baseURL ends with /anthropic', async () => {
-      const runtime = new LobeMoonshotAI({
-        apiKey: 'test',
-        baseURL: 'https://api.moonshot.cn/anthropic',
-      });
-      expect(runtime).toBeInstanceOf(LobeMoonshotAI);
+      const router = await resolveRouter(anthropicBaseURL);
+
+      expect(router.apiType).toBe('anthropic');
+      expect(router.runtime).toBe(LobeMoonshotAnthropicAI);
     });
 
     it('should route to Anthropic format when baseURL ends with /anthropic/', async () => {
-      const runtime = new LobeMoonshotAI({
-        apiKey: 'test',
-        baseURL: 'https://api.moonshot.cn/anthropic/',
-      });
-      expect(runtime).toBeInstanceOf(LobeMoonshotAI);
+      const router = await resolveRouter(`${anthropicBaseURL}/`);
+
+      expect(router.apiType).toBe('anthropic');
+      expect(router.runtime).toBe(LobeMoonshotAnthropicAI);
+    });
+
+    it('should route to Anthropic format when sdkType is anthropic', async () => {
+      const router = await resolveRouter('https://aihubmix.com/v1/messages', 'anthropic');
+
+      expect(router.apiType).toBe('anthropic');
+      expect(router.runtime).toBe(LobeMoonshotAnthropicAI);
+    });
+
+    it('should normalize /v1/messages before creating an Anthropic SDK runtime', async () => {
+      const { option } = await resolveFirstRouterOption(
+        'https://aihubmix.com/v1/messages',
+        'anthropic',
+      );
+      const runtime = new LobeMoonshotAnthropicAI({ apiKey: 'test', baseURL: option.baseURL });
+
+      expect(option.baseURL).toBe('https://aihubmix.com');
+      expect(runtime).toBeInstanceOf(LobeMoonshotAnthropicAI);
+      expect((runtime as any).baseURL).toBe('https://aihubmix.com');
+    });
+
+    it('should normalize /anthropic/v1/messages before creating an Anthropic SDK runtime', async () => {
+      const { option } = await resolveFirstRouterOption(
+        'https://api.moonshot.cn/anthropic/v1/messages',
+        'anthropic',
+      );
+      const runtime = new LobeMoonshotAnthropicAI({ apiKey: 'test', baseURL: option.baseURL });
+
+      expect(option.baseURL).toBe(anthropicBaseURL);
+      expect(runtime).toBeInstanceOf(LobeMoonshotAnthropicAI);
+      expect((runtime as any).baseURL).toBe(anthropicBaseURL);
+    });
+
+    it('should let sdkType override legacy baseURL suffix routing', async () => {
+      const router = await resolveRouter(anthropicBaseURL, 'openai');
+
+      expect(router.apiType).toBe('openai');
+      expect(router.runtime).toBe(LobeMoonshotOpenAI);
+    });
+
+    it('should reject unsupported sdkType values', async () => {
+      await expect(resolveRouter(defaultOpenAIBaseURL, 'invalid')).rejects.toThrow(
+        'Unsupported Moonshot sdkType: invalid',
+      );
     });
   });
 
@@ -309,6 +394,18 @@ describe('LobeMoonshotOpenAI', () => {
         await instance.chat({
           messages: [{ content: 'Hello', role: 'user' }],
           model: 'kimi-k2-thinking',
+          thinking: { budget_tokens: 0, type: 'disabled' },
+        });
+
+        const payload = getLastRequestPayload();
+        expect(payload.thinking).toEqual({ type: 'enabled' });
+        expect(payload.temperature).toBe(1);
+      });
+
+      it('should always enable thinking for kimi-k2.7-code', async () => {
+        await instance.chat({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'kimi-k2.7-code',
           thinking: { budget_tokens: 0, type: 'disabled' },
         });
 
@@ -589,6 +686,21 @@ describe('LobeMoonshotAnthropicAI', () => {
         expect(payload.temperature).toBe(1);
       });
 
+      it('should always enable thinking for kimi-k2.7-code', async () => {
+        await instance.chat({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'kimi-k2.7-code',
+          thinking: { budget_tokens: 0, type: 'disabled' },
+        });
+
+        const payload = getLastRequestPayload();
+        expect(payload.thinking).toEqual({
+          budget_tokens: 1024,
+          type: 'enabled',
+        });
+        expect(payload.temperature).toBe(1);
+      });
+
       it('should force thinking block on assistant messages', async () => {
         await instance.chat({
           messages: [
@@ -761,15 +873,13 @@ describe('models', () => {
     expect(models).toEqual([]);
   });
 
-  it('should handle fetch error gracefully', async () => {
+  it('should throw when model fetch fails', async () => {
     const mockClient = {
       models: {
         list: vi.fn().mockRejectedValue(new Error('Network error')),
       },
     } as unknown as OpenAI;
 
-    const models = await fetchModels({ client: mockClient });
-
-    expect(models).toEqual([]);
+    await expect(fetchModels({ client: mockClient })).rejects.toThrow('Network error');
   });
 });

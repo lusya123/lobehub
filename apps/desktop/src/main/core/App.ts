@@ -10,7 +10,6 @@ import * as electronIs from 'electron-is';
 import { name } from '@/../../package.json';
 import { binDir, buildDir } from '@/const/dir';
 import { isDev } from '@/const/env';
-import { ELECTRON_BE_PROTOCOL_SCHEME } from '@/const/protocol';
 import type { IControlModule } from '@/controllers';
 import AuthCtr from '@/controllers/AuthCtr';
 import { generateCliWrapper, getCliWrapperDir } from '@/modules/cliEmbedding';
@@ -29,8 +28,10 @@ import type { IServiceModule } from '@/services';
 import { createLogger } from '@/utils/logger';
 
 import { BrowserManager } from './browser/BrowserManager';
+import { backendProxyProtocolManager } from './infrastructure/BackendProxyProtocolManager';
 import { I18nManager } from './infrastructure/I18nManager';
 import { IoCContainer } from './infrastructure/IoCContainer';
+import { LocalFileProtocolManager } from './infrastructure/LocalFileProtocolManager';
 import { ProtocolManager } from './infrastructure/ProtocolManager';
 import { RendererUrlManager } from './infrastructure/RendererUrlManager';
 import { StaticFileServerManager } from './infrastructure/StaticFileServerManager';
@@ -62,6 +63,7 @@ export class App {
   staticFileServerManager: StaticFileServerManager;
   protocolManager: ProtocolManager;
   rendererUrlManager: RendererUrlManager;
+  localFileProtocolManager: LocalFileProtocolManager;
   toolDetectorManager: ToolDetectorManager;
   screenCaptureManager: ScreenCaptureManager;
   chromeFlags: string[] = ['OverlayScrollbar', 'FluentOverlayScrollbar', 'FluentScrollbar'];
@@ -102,18 +104,19 @@ export class App {
     this.storeManager = new StoreManager(this);
 
     this.rendererUrlManager = new RendererUrlManager();
+    // Wire the backend reverse-proxy as an `app://` interceptor: keeps
+    // RendererUrlManager ignorant of "what counts as a backend path" while
+    // letting BackendProxyProtocolManager own that knowledge.
+    this.rendererUrlManager.addRequestInterceptor(
+      backendProxyProtocolManager.createAppRequestInterceptor(),
+    );
+    this.localFileProtocolManager = new LocalFileProtocolManager();
+    void this.localFileProtocolManager.approveWorkspaceRoots(
+      this.storeManager.get('localFileWorkspaceRoots', []),
+    );
     protocol.registerSchemesAsPrivileged([
-      {
-        privileges: {
-          allowServiceWorkers: true,
-          corsEnabled: true,
-          secure: true,
-          standard: true,
-          supportFetchAPI: true,
-        },
-        scheme: ELECTRON_BE_PROTOCOL_SCHEME,
-      },
       this.rendererUrlManager.protocolScheme,
+      this.localFileProtocolManager.protocolScheme,
     ]);
 
     // load controllers
@@ -151,6 +154,10 @@ export class App {
     // Configure renderer loading strategy (dev server vs static export)
     // should register before app ready
     this.rendererUrlManager.configureRendererLoader();
+
+    // Serves arbitrary local files (e.g. project file previews) via
+    // `localfile://` to the renderer. Active in both dev and prod.
+    this.localFileProtocolManager.registerHandler();
 
     // initialize protocol handlers
     this.protocolManager.initialize();
@@ -420,7 +427,6 @@ export class App {
     if (!isDev) return;
 
     logger.debug('Setting up dev branding');
-    app.setName('lobehub-desktop-dev');
     if (electronIs.macOS()) {
       app.dock!.setIcon(path.join(buildDir, 'icon-dev.png'));
     }

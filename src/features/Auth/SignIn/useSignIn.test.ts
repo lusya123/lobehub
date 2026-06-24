@@ -13,7 +13,10 @@ const mockSignInEmail = vi.hoisted(() => vi.fn());
 const mockSignInMagicLink = vi.hoisted(() => vi.fn());
 const mockRequestPasswordReset = vi.hoisted(() => vi.fn());
 const mockBusinessSignin = vi.hoisted(() => ({
+  businessElement: null,
   getAdditionalData: vi.fn(async () => ({})),
+  getCaptchaTokenOnError: vi.fn(async () => undefined as string | null | undefined),
+  getFetchOptions: vi.fn(async () => undefined as Record<string, unknown> | undefined),
   preSocialSigninCheck: vi.fn(async () => true),
   ssoProviders: [] as string[],
 }));
@@ -58,7 +61,10 @@ vi.mock('@lobechat/business-const', () => ({
 
 vi.mock('@/business/client/hooks/useBusinessSignin', () => ({
   useBusinessSignin: () => ({
+    businessElement: mockBusinessSignin.businessElement,
     getAdditionalData: mockBusinessSignin.getAdditionalData,
+    getCaptchaTokenOnError: mockBusinessSignin.getCaptchaTokenOnError,
+    getFetchOptions: mockBusinessSignin.getFetchOptions,
     preSocialSigninCheck: mockBusinessSignin.preSocialSigninCheck,
     ssoProviders: mockBusinessSignin.ssoProviders,
   }),
@@ -113,6 +119,8 @@ describe('useSignIn', () => {
     mockSearchParamsGet.mockReturnValue(null);
     mockEnableBusinessFeatures = false;
     mockBusinessSignin.ssoProviders = [];
+    mockBusinessSignin.getCaptchaTokenOnError.mockResolvedValue(undefined);
+    mockBusinessSignin.getFetchOptions.mockResolvedValue(undefined);
     mockBusinessSignin.getAdditionalData.mockResolvedValue({});
     mockBusinessSignin.preSocialSigninCheck.mockResolvedValue(true);
     Object.defineProperty(window, 'location', {

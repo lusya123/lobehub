@@ -71,6 +71,15 @@ const getSub2ApiEnv = () => {
   return { internalSecret, internalUrl };
 };
 
+export const normalizeSub2ApiProviderId = (providerId: string) => {
+  const trimmedId = providerId.trim();
+  if (!trimmedId) return '';
+
+  return trimmedId.startsWith(SUB2API_PROVIDER_PREFIX)
+    ? trimmedId
+    : `${SUB2API_PROVIDER_PREFIX}${trimmedId}`;
+};
+
 export async function provisionSub2ApiFromAccount(authAccount: {
   accountId?: string | null;
   providerId?: string | null;
@@ -115,10 +124,11 @@ export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: st
     const validProviderIds: string[] = [];
 
     for (const p of config.providers) {
-      if (!p.id || !p.api_key || !p.base_url || p.models.length === 0) continue;
+      const providerId = normalizeSub2ApiProviderId(p.id);
+      if (!providerId || !p.api_key || !p.base_url || p.models.length === 0) continue;
 
-      validProviderIds.push(p.id);
-      defaultModelConfig ??= pickDefaultModel(p);
+      validProviderIds.push(providerId);
+      defaultModelConfig ??= pickDefaultModel(p, providerId);
       const encryptedKeyVaults = await gateKeeper.encrypt(
         JSON.stringify({ apiKey: p.api_key, baseURL: p.base_url }),
       );
@@ -128,7 +138,7 @@ export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: st
         .values({
           checkModel: p.models[0]?.id,
           enabled: true,
-          id: p.id,
+          id: providerId,
           keyVaults: encryptedKeyVaults,
           name: p.display_name,
           settings: { sdkType: p.sdk_type },
@@ -159,7 +169,7 @@ export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: st
             displayName: modelDisplayName,
             enabled: true,
             id: m.id,
-            providerId: p.id,
+            providerId,
             source: 'custom',
             type: 'chat',
             userId: lobeUserId,
@@ -174,7 +184,7 @@ export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: st
             target: [aiModels.id, aiModels.providerId, aiModels.userId],
           });
       }
-      validModelIdsByProvider.set(p.id, new Set(validModelIds));
+      validModelIdsByProvider.set(providerId, new Set(validModelIds));
 
       if (validModelIds.length > 0) {
         await tx
@@ -182,7 +192,7 @@ export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: st
           .where(
             and(
               eq(aiModels.userId, lobeUserId),
-              eq(aiModels.providerId, p.id),
+              eq(aiModels.providerId, providerId),
               notInArray(aiModels.id, validModelIds),
             ),
           );
@@ -212,7 +222,10 @@ export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: st
       await tx
         .delete(aiModels)
         .where(
-          and(eq(aiModels.userId, lobeUserId), like(aiModels.providerId, `${SUB2API_PROVIDER_PREFIX}%`)),
+          and(
+            eq(aiModels.userId, lobeUserId),
+            like(aiModels.providerId, `${SUB2API_PROVIDER_PREFIX}%`),
+          ),
         );
 
       await tx.delete(aiProviders).where(sub2apiProviderFilter);
@@ -319,7 +332,9 @@ const updateInboxAgentConfig = async (
   const [link] = await serverDB
     .select({ agentId: agentsToSessions.agentId })
     .from(agentsToSessions)
-    .where(and(eq(agentsToSessions.userId, lobeUserId), eq(agentsToSessions.sessionId, inboxSession.id)))
+    .where(
+      and(eq(agentsToSessions.userId, lobeUserId), eq(agentsToSessions.sessionId, inboxSession.id)),
+    )
     .limit(1);
   if (!link?.agentId) return;
 
@@ -338,14 +353,17 @@ const pickPreservedModelConfig = (
   return { model, provider };
 };
 
-const pickDefaultModel = (provider: Sub2ApiProvider): DefaultModelConfig | undefined => {
+const pickDefaultModel = (
+  provider: Sub2ApiProvider,
+  providerId = normalizeSub2ApiProviderId(provider.id),
+): DefaultModelConfig | undefined => {
   const models = provider.models.map((item) => item.id).filter(Boolean);
   const priority = DEFAULT_MODEL_PRIORITY[provider.sdk_type] || [];
   const model =
     priority.flatMap((keyword) => models.filter((id) => id.includes(keyword))).at(0) || models[0];
   if (!model) return;
 
-  return { model, provider: provider.id };
+  return { model, provider: providerId };
 };
 
 const sub2ApiModelDisplayName = (provider: Sub2ApiProvider, model: Sub2ApiModel) => {

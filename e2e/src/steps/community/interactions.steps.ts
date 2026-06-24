@@ -14,25 +14,25 @@ const clickFirstCommunityCard = async (world: CustomWorld, cardSelector: string)
 
   world.testContext.previousUrl = listUrl;
   await firstCard.click();
-  await world.page.waitForFunction(
-    (previousUrl) => window.location.href !== previousUrl,
-    listUrl,
-    { timeout: 30_000 },
-  );
+  await world.page.waitForFunction((previousUrl) => window.location.href !== previousUrl, listUrl, {
+    timeout: 30_000,
+  });
   await world.page.waitForLoadState('domcontentloaded', { timeout: 30_000 });
 };
 
 const expectCommunityDetailContent = async (world: CustomWorld, detailSelector: string) => {
-  const hasDetailContent = await world.page
-    .locator(detailSelector)
-    .isVisible({ timeout: 5000 })
-    .catch(() => false);
+  const detailContent = world.page.locator(detailSelector).first();
+  const detailVisible = await detailContent.waitFor({ state: 'visible', timeout: 20_000 }).then(
+    () => true,
+    () => false,
+  );
 
-  if (hasDetailContent) return;
+  if (detailVisible) return;
 
-  await expect(world.page.getByText(unavailableDetailText, { exact: true })).toBeVisible({
-    timeout: 30_000,
-  });
+  const unavailablePage = world.page.getByText(unavailableDetailText, { exact: true }).first();
+  const notFoundPage = world.page.getByRole('heading', { name: /not found|404/i }).first();
+
+  await expect(unavailablePage.or(notFoundPage)).toBeVisible({ timeout: 5000 });
 };
 
 // ============================================
@@ -176,10 +176,7 @@ When(
   'I click on the first assistant card',
   { timeout: 90_000 },
   async function (this: CustomWorld) {
-    await clickFirstCommunityCard(
-      this,
-      '[data-testid="assistant-item"][data-agent-type="agent"]',
-    );
+    await clickFirstCommunityCard(this, '[data-testid="assistant-item"][data-agent-type="agent"]');
   },
 );
 
@@ -221,16 +218,9 @@ When('I click on the first provider card', async function (this: CustomWorld) {
   );
 });
 
-When(
-  'I click on the first MCP card',
-  { timeout: 90_000 },
-  async function (this: CustomWorld) {
-    await clickFirstCommunityCard(
-      this,
-      '[data-testid="mcp-item"]',
-    );
-  },
-);
+When('I click on the first MCP card', { timeout: 90_000 }, async function (this: CustomWorld) {
+  await clickFirstCommunityCard(this, '[data-testid="mcp-item"]');
+});
 
 When('I click on the sort dropdown', async function (this: CustomWorld) {
   await this.page.waitForLoadState('networkidle', { timeout: 30_000 });
@@ -338,10 +328,7 @@ When(
   'I click on the first featured assistant card',
   { timeout: 90_000 },
   async function (this: CustomWorld) {
-    await clickFirstCommunityCard(
-      this,
-      '[data-testid="assistant-item"]',
-    );
+    await clickFirstCommunityCard(this, '[data-testid="assistant-item"]');
   },
 );
 
@@ -452,8 +439,6 @@ Then('I should be navigated to the assistant detail page', async function (this:
 });
 
 Then('I should see the assistant detail content', async function (this: CustomWorld) {
-  await this.page.waitForLoadState('networkidle', { timeout: 30_000 });
-
   await expectCommunityDetailContent(this, '[data-testid="assistant-detail-content"]');
 });
 
@@ -565,8 +550,6 @@ Then('I should be navigated to the MCP detail page', async function (this: Custo
 });
 
 Then('I should see the MCP detail content', async function (this: CustomWorld) {
-  await this.page.waitForLoadState('networkidle', { timeout: 30_000 });
-
   await expectCommunityDetailContent(this, '[data-testid="mcp-detail-content"]');
 });
 

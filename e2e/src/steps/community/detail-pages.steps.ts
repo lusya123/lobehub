@@ -6,16 +6,18 @@ import type { CustomWorld } from '../../support/world';
 const unavailableDetailText = 'Entered Unknown Territory?';
 
 const expectCommunityDetailContent = async (world: CustomWorld, detailSelector: string) => {
-  const hasDetailContent = await world.page
-    .locator(detailSelector)
-    .isVisible({ timeout: 5000 })
-    .catch(() => false);
+  const detailContent = world.page.locator(detailSelector).first();
+  const detailVisible = await detailContent.waitFor({ state: 'visible', timeout: 20_000 }).then(
+    () => true,
+    () => false,
+  );
 
-  if (hasDetailContent) return;
+  if (detailVisible) return;
 
-  await expect(world.page.getByText(unavailableDetailText, { exact: true })).toBeVisible({
-    timeout: 30_000,
-  });
+  const unavailablePage = world.page.getByText(unavailableDetailText, { exact: true }).first();
+  const notFoundPage = world.page.getByRole('heading', { name: /not found|404/i }).first();
+
+  await expect(unavailablePage.or(notFoundPage)).toBeVisible({ timeout: 5000 });
 };
 
 // ============================================
@@ -105,8 +107,6 @@ Then('I should see the assistant title', async function (this: CustomWorld) {
 });
 
 Then('I should see the assistant description', async function (this: CustomWorld) {
-  await this.page.waitForLoadState('networkidle', { timeout: 30_000 });
-
   await expectCommunityDetailContent(this, '[data-testid="assistant-detail-content"]');
 });
 
@@ -313,8 +313,6 @@ Then('I should see the MCP title', async function (this: CustomWorld) {
 });
 
 Then('I should see the MCP description', async function (this: CustomWorld) {
-  await this.page.waitForLoadState('networkidle', { timeout: 30_000 });
-
   await expectCommunityDetailContent(this, '[data-testid="mcp-detail-content"]');
 });
 

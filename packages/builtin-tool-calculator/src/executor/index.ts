@@ -1,5 +1,4 @@
 import { BaseExecutor, type BuiltinToolResult, type IBuiltinToolExecutor } from '@lobechat/types';
-import { defBase } from '@thi.ng/base-n/base';
 import { all, create } from 'mathjs';
 // @ts-ignore - nerdamer doesn't have TypeScript definitions
 import nerdamer from 'nerdamer-prime/all';
@@ -21,6 +20,7 @@ import {
 
 // Create a mathjs instance with all functions
 const math = create(all);
+const BASE_DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 /**
  * Calculator Tool Executor
@@ -50,6 +50,7 @@ class CalculatorExecutor
     } catch (error) {
       throw new Error(
         `Failed to evaluate expression: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        { cause: error },
       );
     }
   }
@@ -77,32 +78,32 @@ class CalculatorExecutor
     return math.format(result, { precision: precision || 10 });
   }
 
-  /**
-   * Convert number between bases using @thi.ng/base-n
-   */
   private convertNumber(number: string | number, fromBase: number, toBase: number): string {
-    // Define character set for source and target bases
-    const sourceChars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.slice(0, fromBase);
-    const targetChars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'.slice(0, toBase);
-
-    // Create converters
-    const sourceConverter = defBase(sourceChars);
-    const targetConverter = defBase(targetChars);
-
-    // Convert input number to string
     let numStr = String(number).trim().toUpperCase();
-
-    // Handle decimal input like parseInt - take only integer part
     const decimalIndex = numStr.indexOf('.');
     if (decimalIndex !== -1) {
       numStr = numStr.slice(0, Math.max(0, decimalIndex));
     }
+    if (!numStr) throw new Error('Invalid digit');
 
-    // Convert from source base to decimal (as bigint)
-    const decimal = sourceConverter.decodeBigInt(numStr);
+    let decimal = 0n;
+    for (const char of numStr) {
+      const digit = BASE_DIGITS.indexOf(char);
+      if (digit < 0 || digit >= fromBase) throw new Error('Invalid digit');
+      decimal = decimal * BigInt(fromBase) + BigInt(digit);
+    }
 
-    // Convert decimal to target base
-    return targetConverter.encodeBigInt(decimal);
+    if (decimal === 0n) return '0';
+
+    let convertedNumber = '';
+    const targetBase = BigInt(toBase);
+    while (decimal > 0n) {
+      const digit = Number(decimal % targetBase);
+      convertedNumber = BASE_DIGITS[digit] + convertedNumber;
+      decimal /= targetBase;
+    }
+
+    return convertedNumber;
   }
 
   /**
@@ -288,7 +289,6 @@ class CalculatorExecutor
         throw new Error('Base must be between 2 and 36');
       }
 
-      // Convert using @thi.ng/base-n
       const convertedNumber = this.convertNumber(number, fromBase, toBase);
 
       // Get decimal value for state

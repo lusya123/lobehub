@@ -247,8 +247,12 @@ export const useSignIn = () => {
       }
 
       const callbackUrl = searchParams.get('callbackUrl') || '/';
-      // First-time OAuth users are signups — land them on onboarding first
-      const newUserCallbackURL = buildOnboardingRedirectUrl(callbackUrl);
+      const isSub2ApiLaunch =
+        normalizedProvider === 'generic-oidc' && searchParams.get('source') === 'sub2api';
+      // Sub2API provisions the user's models and onboarding state during OIDC account sync.
+      const newUserCallbackURL = isSub2ApiLaunch
+        ? sanitizeRedirectPath(callbackUrl)
+        : buildOnboardingRedirectUrl(callbackUrl);
       const additionalData = await getAdditionalData();
       const fetchOptions = await getFetchOptions();
       const signInWithFetchOptions = async (nextFetchOptions?: AuthFetchOptions) =>

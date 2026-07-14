@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useSignIn } from './useSignIn';
@@ -71,14 +71,16 @@ vi.mock('@/business/client/hooks/useBusinessSignin', () => ({
 }));
 
 let mockEnableBusinessFeatures = false;
+let mockDisableEmailPassword = false;
+let mockOAuthSSOProviders = ['google', 'github'];
 vi.mock('@/features/AuthShell', () => ({
   useAuthServerConfigStore: (selector: (s: any) => any) =>
     selector({
       serverConfig: {
-        disableEmailPassword: false,
+        disableEmailPassword: mockDisableEmailPassword,
         enableBusinessFeatures: mockEnableBusinessFeatures,
         enableMagicLink: false,
-        oAuthSSOProviders: ['google', 'github'],
+        oAuthSSOProviders: mockOAuthSSOProviders,
       },
       serverConfigInit: true,
     }),
@@ -118,6 +120,8 @@ describe('useSignIn', () => {
     mockLocalStorage.clear();
     mockSearchParamsGet.mockReturnValue(null);
     mockEnableBusinessFeatures = false;
+    mockDisableEmailPassword = false;
+    mockOAuthSSOProviders = ['google', 'github'];
     mockBusinessSignin.ssoProviders = [];
     mockBusinessSignin.getCaptchaTokenOnError.mockResolvedValue(undefined);
     mockBusinessSignin.getFetchOptions.mockResolvedValue(undefined);
@@ -380,6 +384,49 @@ describe('useSignIn', () => {
       );
     });
 
+    it('should send first-time Sub2API OIDC users directly to the requested chat', async () => {
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl')
+          return '/agent/inbox?provider=sub2api-group-7&modelId=gpt-5.4-mini';
+        if (key === 'source') return 'sub2api';
+        return null;
+      });
+      mockSignInOauth2.mockResolvedValue({ url: 'https://sub2api.example.com/oauth2/authorize' });
+
+      const { result } = renderHook(() => useSignIn());
+
+      await act(async () => {
+        await result.current.handleSocialSignIn('generic-oidc');
+      });
+
+      expect(mockSignInOauth2).toHaveBeenCalledWith(
+        expect.objectContaining({
+          callbackURL: '/agent/inbox?provider=sub2api-group-7&modelId=gpt-5.4-mini',
+          newUserCallbackURL: '/agent/inbox?provider=sub2api-group-7&modelId=gpt-5.4-mini',
+          providerId: 'generic-oidc',
+        }),
+      );
+    });
+
+    it('should reject a hostile callback for a Sub2API OIDC launch', async () => {
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl') return 'https://evil.example/chat';
+        if (key === 'source') return 'sub2api';
+        return null;
+      });
+      mockSignInOauth2.mockResolvedValue({ url: 'https://sub2api.example.com/oauth2/authorize' });
+
+      const { result } = renderHook(() => useSignIn());
+
+      await act(async () => {
+        await result.current.handleSocialSignIn('generic-oidc');
+      });
+
+      expect(mockSignInOauth2).toHaveBeenCalledWith(
+        expect.objectContaining({ newUserCallbackURL: '/', providerId: 'generic-oidc' }),
+      );
+    });
+
     it('should NOT throw when result has error: null (redirect case)', async () => {
       mockSignInSocial.mockResolvedValue({
         error: null,
@@ -450,6 +497,31 @@ describe('useSignIn', () => {
 
       expect(mockBusinessSignin.preSocialSigninCheck).toHaveBeenCalled();
       expect(mockSignInSocial).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('automatic OIDC sign in', () => {
+    it('should automatically enter a Sub2API chat without an extra login action', async () => {
+      mockDisableEmailPassword = true;
+      mockOAuthSSOProviders = ['generic-oidc'];
+      mockSearchParamsGet.mockImplementation((key: string) => {
+        if (key === 'callbackUrl') return '/agent/inbox';
+        if (key === 'source') return 'sub2api';
+        return null;
+      });
+      mockSignInOauth2.mockResolvedValue({ url: 'https://sub2api.example.com/oauth2/authorize' });
+
+      const { result } = renderHook(() => useSignIn());
+
+      await waitFor(() => expect(mockSignInOauth2).toHaveBeenCalledOnce());
+      expect(mockSignInOauth2).toHaveBeenCalledWith(
+        expect.objectContaining({
+          callbackURL: '/agent/inbox',
+          newUserCallbackURL: '/agent/inbox',
+          providerId: 'generic-oidc',
+        }),
+      );
+      expect(result.current.autoSignInRedirecting).toBe(false);
     });
   });
 

@@ -9,6 +9,8 @@ import { isSafeRedirectPath } from '@/utils/onboardingRedirect';
 
 import { buildSeoMeta } from './seoMeta';
 
+export const dynamic = 'force-dynamic';
+
 export function generateStaticParams() {
   const staticLocales: Locales[] = ['en-US', 'zh-CN'];
 

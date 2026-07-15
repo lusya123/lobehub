@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { GET } from './route';
+import { dynamic, GET } from './route';
 
 const mocks = vi.hoisted(() => ({
   authConfig: {
@@ -35,6 +35,10 @@ const createRequest = (search = '') =>
   new Request(`https://lobe.example.com/spa-auth/en-US/signin${search}`, {
     headers: { 'user-agent': 'vitest' },
   });
+
+it('opts out of static rendering because the sign-in redirect depends on the request URL', () => {
+  expect(dynamic).toBe('force-dynamic');
+});
 
 describe('Sub2API server-side sign in', () => {
   beforeEach(() => {

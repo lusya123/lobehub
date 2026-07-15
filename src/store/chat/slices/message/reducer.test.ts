@@ -218,7 +218,7 @@ describe('messagesReducer', () => {
       };
 
       const newState = messagesReducer(state, payload);
-      expect(newState).toEqual(state);
+      expect(newState).toBe(state);
     });
   });
 

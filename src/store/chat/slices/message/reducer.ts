@@ -140,20 +140,19 @@ export const messagesReducer = (
     }
 
     case 'updatePluginState': {
+      const { id, key, value } = payload;
+      const messageIndex = state.findIndex((i) => i.id === id);
+      if (messageIndex < 0) return state;
+
+      const pluginState = state[messageIndex].pluginState;
+      const newState = pluginState
+        ? merge(pluginState, { [key]: value })
+        : ({ [key]: value } as any);
+
+      if (isEqual(pluginState, newState)) return state;
+
       return produce(state, (draftState) => {
-        const { id, key, value } = payload;
-        const message = draftState.find((i) => i.id === id);
-        if (!message) return;
-
-        let newState;
-        if (!message.pluginState) {
-          newState = { [key]: value } as any;
-        } else {
-          newState = merge(message.pluginState, { [key]: value });
-        }
-
-        if (isEqual(message.pluginState, newState)) return;
-
+        const message = draftState[messageIndex];
         message.pluginState = newState;
         message.updatedAt = Date.now();
       });

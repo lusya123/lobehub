@@ -11,7 +11,7 @@ import {
   userSettings,
 } from '@lobechat/database/schemas';
 import { MAX_ONBOARDING_STEPS } from '@lobechat/types';
-import { and, eq, like, notInArray } from 'drizzle-orm';
+import { and, eq, isNull, like, notInArray } from 'drizzle-orm';
 
 import { SessionModel } from '@/database/models/session';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
@@ -156,6 +156,7 @@ export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: st
             updatedAt: new Date(),
           },
           target: [aiProviders.id, aiProviders.userId],
+          targetWhere: isNull(aiProviders.workspaceId),
         });
 
       const validModelIds: string[] = [];
@@ -182,6 +183,7 @@ export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: st
               updatedAt: new Date(),
             },
             target: [aiModels.id, aiModels.providerId, aiModels.userId],
+            targetWhere: isNull(aiModels.workspaceId),
           });
       }
       validModelIdsByProvider.set(providerId, new Set(validModelIds));

@@ -22,10 +22,12 @@ const mocks = vi.hoisted(() => {
       id: 'aiModels.id',
       providerId: 'aiModels.providerId',
       userId: 'aiModels.userId',
+      workspaceId: 'aiModels.workspaceId',
     },
     aiProviders: {
       id: 'aiProviders.id',
       userId: 'aiProviders.userId',
+      workspaceId: 'aiProviders.workspaceId',
     },
     sessions: {
       slug: 'sessions.slug',
@@ -137,6 +139,7 @@ vi.mock('@lobechat/types', () => ({
 vi.mock('drizzle-orm', () => ({
   and: vi.fn((...args) => ({ args, op: 'and' })),
   eq: vi.fn((left, right) => ({ left, op: 'eq', right })),
+  isNull: vi.fn((value) => ({ op: 'isNull', value })),
   like: vi.fn((left, right) => ({ left, op: 'like', right })),
   notInArray: vi.fn((left, right) => ({ left, op: 'notInArray', right })),
 }));
@@ -222,5 +225,13 @@ describe('sub2api provisioning', () => {
       provider: 'sub2api-openai',
     });
     expect(providerInsert.value.id).not.toBe('openai');
+    expect(providerInsert.onConflictDoUpdate.targetWhere).toEqual({
+      op: 'isNull',
+      value: mocks.schemas.aiProviders.workspaceId,
+    });
+    expect(modelInsert.onConflictDoUpdate.targetWhere).toEqual({
+      op: 'isNull',
+      value: mocks.schemas.aiModels.workspaceId,
+    });
   });
 });

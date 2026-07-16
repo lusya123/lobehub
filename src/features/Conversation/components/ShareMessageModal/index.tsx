@@ -1,15 +1,22 @@
 import { type UIChatMessage } from '@lobechat/types';
-import { Flexbox, Modal, Segmented, Tabs } from '@lobehub/ui';
+import { Flexbox, Modal, Segmented, Skeleton, Tabs } from '@lobehub/ui';
 import { memo, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import ShareDataProvider from '@/features/ShareModal/ShareDataProvider';
-import SharePdf from '@/features/ShareModal/SharePdf';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import dynamic from '@/libs/next/dynamic';
 
 import { useConversationStore } from '../../store';
-import ShareImage from './ShareImage';
-import ShareText from './ShareText';
+
+const loading = () => <Skeleton active paragraph={{ rows: 8 }} />;
+
+const ShareImage = dynamic(() => import('./ShareImage'), { loading, ssr: false });
+const SharePdf = dynamic(() => import('@/features/ShareModal/SharePdf'), {
+  loading,
+  ssr: false,
+});
+const ShareText = dynamic(() => import('./ShareText'), { loading, ssr: false });
 
 enum Tab {
   PDF = 'pdf',

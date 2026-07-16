@@ -1,3 +1,4 @@
+import { CalculatorApiName, CalculatorIdentifier } from '@lobechat/builtin-tool-calculator/types';
 import { LobeAgentApiName, LobeAgentIdentifier } from '@lobechat/builtin-tool-lobe-agent';
 import {
   WebOnboardingApiName,
@@ -53,6 +54,20 @@ describe('builtin executor registry', () => {
     await registerBuiltinToolExecutors();
 
     expect(hasExecutor(LobeAgentIdentifier, LobeAgentApiName.analyzeVisualMedia)).toBe(true);
+  }, 30_000);
+
+  it('loads the calculator implementation only when it is invoked', async () => {
+    await registerBuiltinToolExecutors();
+
+    expect(hasExecutor(CalculatorIdentifier, CalculatorApiName.calculate)).toBe(true);
+    await expect(
+      invokeExecutor(
+        CalculatorIdentifier,
+        CalculatorApiName.calculate,
+        { expression: '1 + 1' },
+        { messageId: 'calculator-test-message' },
+      ),
+    ).resolves.toMatchObject({ content: '2', success: true });
   }, 30_000);
 
   it('rejects nested sub-agent execution', async () => {

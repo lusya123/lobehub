@@ -1,14 +1,38 @@
 'use client';
 
 import { Flexbox } from '@lobehub/ui';
-import { memo } from 'react';
+import { lazy, memo, Suspense, useEffect, useState } from 'react';
 import { Outlet } from 'react-router';
 
 import ChatHeader from '@/routes/(main)/agent/features/Conversation/Header';
-import AgentWorkingSidebar from '@/routes/(main)/agent/features/Conversation/WorkingSidebar';
 import Portal from '@/routes/(main)/agent/features/Portal';
+import { useGlobalStore } from '@/store/global';
+import { systemStatusSelectors } from '@/store/global/selectors';
 
 import HeaderSlot from './HeaderSlot';
+
+const AgentWorkingSidebar = lazy(
+  () => import('@/routes/(main)/agent/features/Conversation/WorkingSidebar'),
+);
+
+const DeferredAgentWorkingSidebar = memo(() => {
+  const showRightPanel = useGlobalStore(systemStatusSelectors.showRightPanel);
+  const [hasOpened, setHasOpened] = useState(showRightPanel);
+
+  useEffect(() => {
+    if (showRightPanel) setHasOpened(true);
+  }, [showRightPanel]);
+
+  if (!showRightPanel && !hasOpened) return null;
+
+  return (
+    <Suspense>
+      <AgentWorkingSidebar />
+    </Suspense>
+  );
+});
+
+DeferredAgentWorkingSidebar.displayName = 'DeferredAgentWorkingSidebar';
 
 const ChatLayout = memo(() => {
   return (
@@ -27,7 +51,7 @@ const ChatLayout = memo(() => {
           </Flexbox>
         </Flexbox>
         <Portal />
-        <AgentWorkingSidebar />
+        <DeferredAgentWorkingSidebar />
       </Flexbox>
     </HeaderSlot.Provider>
   );

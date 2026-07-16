@@ -8,7 +8,7 @@
 
 import { agentBuilderExecutor } from '@lobechat/builtin-tool-agent-builder/executor';
 import { agentManagementExecutor } from '@lobechat/builtin-tool-agent-management/executor';
-import { calculatorExecutor } from '@lobechat/builtin-tool-calculator/executor';
+import { CalculatorApiName, CalculatorIdentifier } from '@lobechat/builtin-tool-calculator/types';
 import { cloudSandboxExecutor } from '@lobechat/builtin-tool-cloud-sandbox/executor';
 import { credsExecutor } from '@lobechat/builtin-tool-creds/executor';
 import { groupAgentBuilderExecutor } from '@lobechat/builtin-tool-group-agent-builder/executor';
@@ -37,6 +37,17 @@ import { webOnboardingExecutor } from './lobe-web-onboarding';
  */
 const executorRegistry = new Map<string, IBuiltinToolExecutor>();
 let executorsRegistered = false;
+const calculatorApiNames: string[] = Object.values(CalculatorApiName);
+const lazyCalculatorExecutor: IBuiltinToolExecutor = {
+  getApiNames: () => calculatorApiNames,
+  hasApi: (apiName) => calculatorApiNames.includes(apiName),
+  identifier: CalculatorIdentifier,
+  invoke: async (apiName, params, ctx) => {
+    const { calculatorExecutor } = await import('@lobechat/builtin-tool-calculator/executor');
+
+    return calculatorExecutor.invoke(apiName, params, ctx);
+  },
+};
 
 /**
  * Get a builtin tool executor by identifier
@@ -140,7 +151,7 @@ export const registerBuiltinToolExecutors = (): void => {
     agentBuilderExecutor,
     agentDocumentsExecutor,
     agentManagementExecutor,
-    calculatorExecutor,
+    lazyCalculatorExecutor,
     cloudSandboxExecutor,
     credsExecutor,
     groupAgentBuilderExecutor,

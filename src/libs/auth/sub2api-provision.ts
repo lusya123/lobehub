@@ -11,7 +11,7 @@ import {
   userSettings,
 } from '@lobechat/database/schemas';
 import { MAX_ONBOARDING_STEPS } from '@lobechat/types';
-import { and, eq, isNull, like, notInArray } from 'drizzle-orm';
+import { and, eq, isNull, like, notInArray, sql } from 'drizzle-orm';
 
 import { SessionModel } from '@/database/models/session';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
@@ -40,8 +40,24 @@ interface DefaultModelConfig {
   provider: string;
 }
 
+interface PreparedSub2ApiProvider {
+  encryptedKeyVaults: string;
+  models: Sub2ApiModel[];
+  provider: Sub2ApiProvider;
+  providerId: string;
+}
+
+type ProvisionScheduler = (task: () => Promise<void>) => void;
+
+interface RefreshSub2ApiOptions {
+  deferWhenConfigured?: ProvisionScheduler;
+}
+
+export type RefreshSub2ApiResult = 'completed' | 'deferred';
+
 const SUB2API_PROVIDER_PREFIX = 'sub2api-';
 const SUB2API_OIDC_PROVIDER = 'generic-oidc';
+const inFlightProvisions = new Map<string, Promise<void>>();
 const DEFAULT_MODEL_PRIORITY: Record<Sub2ApiProvider['sdk_type'], string[]> = {
   anthropic: [
     'claude-sonnet-4-6',
@@ -80,22 +96,75 @@ export const normalizeSub2ApiProviderId = (providerId: string) => {
     : `${SUB2API_PROVIDER_PREFIX}${trimmedId}`;
 };
 
-export async function provisionSub2ApiFromAccount(authAccount: {
-  accountId?: string | null;
-  providerId?: string | null;
-  userId?: string | null;
-}) {
+export async function provisionSub2ApiFromAccount(
+  authAccount: {
+    accountId?: string | null;
+    providerId?: string | null;
+    userId?: string | null;
+  },
+  options: RefreshSub2ApiOptions = {},
+) {
   if (authAccount.providerId !== SUB2API_OIDC_PROVIDER) return;
   if (!authAccount.userId || !authAccount.accountId) return;
 
   try {
-    await provisionFromSub2Api(authAccount.userId, authAccount.accountId);
+    await refreshSub2ApiConfig(authAccount.userId, authAccount.accountId, options);
   } catch (error) {
     console.error('[sub2api-provision] failed after account hook', error);
   }
 }
 
-export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: string) {
+export async function hasSub2ApiConfig(lobeUserId: string) {
+  const [provider] = await serverDB
+    .select({ id: aiProviders.id })
+    .from(aiProviders)
+    .where(
+      and(
+        eq(aiProviders.userId, lobeUserId),
+        like(aiProviders.id, `${SUB2API_PROVIDER_PREFIX}%`),
+        isNull(aiProviders.workspaceId),
+      ),
+    )
+    .limit(1);
+
+  return !!provider;
+}
+
+export async function refreshSub2ApiConfig(
+  lobeUserId: string,
+  sub2apiUserId: string,
+  options: RefreshSub2ApiOptions = {},
+): Promise<RefreshSub2ApiResult> {
+  if (options.deferWhenConfigured && (await hasSub2ApiConfig(lobeUserId))) {
+    options.deferWhenConfigured(async () => {
+      try {
+        await provisionFromSub2Api(lobeUserId, sub2apiUserId);
+      } catch (error) {
+        console.error('[sub2api-provision] deferred refresh failed', error);
+      }
+    });
+
+    return 'deferred';
+  }
+
+  await provisionFromSub2Api(lobeUserId, sub2apiUserId);
+  return 'completed';
+}
+
+export function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: string) {
+  const taskKey = `${lobeUserId}:${sub2apiUserId}`;
+  const inFlight = inFlightProvisions.get(taskKey);
+  if (inFlight) return inFlight;
+
+  const task = runSub2ApiProvision(lobeUserId, sub2apiUserId).finally(() => {
+    if (inFlightProvisions.get(taskKey) === task) inFlightProvisions.delete(taskKey);
+  });
+  inFlightProvisions.set(taskKey, task);
+
+  return task;
+}
+
+async function runSub2ApiProvision(lobeUserId: string, sub2apiUserId: string) {
   const { internalSecret, internalUrl } = getSub2ApiEnv();
   if (!internalUrl || !internalSecret) return;
 
@@ -116,78 +185,110 @@ export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: st
   }
 
   const config = (await res.json()) as Sub2ApiConfig;
-  const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
+  const seenProviderIds = new Set<string>();
+  const providers = (config.providers ?? []).flatMap((provider) => {
+    const providerId = normalizeSub2ApiProviderId(provider.id);
+    const models = [
+      ...new Map(
+        provider.models.filter((model) => model.id).map((model) => [model.id, model]),
+      ).values(),
+    ];
+
+    if (
+      !providerId ||
+      seenProviderIds.has(providerId) ||
+      !provider.api_key ||
+      !provider.base_url ||
+      models.length === 0
+    ) {
+      return [];
+    }
+
+    seenProviderIds.add(providerId);
+    return [{ models, provider, providerId }];
+  });
+  const gateKeeper = providers.length > 0 ? await KeyVaultsGateKeeper.initWithEnvKey() : undefined;
+  const preparedProviders: PreparedSub2ApiProvider[] = gateKeeper
+    ? await Promise.all(
+        providers.map(async ({ models, provider, providerId }) => ({
+          encryptedKeyVaults: await gateKeeper.encrypt(
+            JSON.stringify({ apiKey: provider.api_key, baseURL: provider.base_url }),
+          ),
+          models,
+          provider,
+          providerId,
+        })),
+      )
+    : [];
   let defaultModelConfig: DefaultModelConfig | undefined;
   const validModelIdsByProvider = new Map<string, Set<string>>();
+  const validProviderIds = preparedProviders.map(({ providerId }) => providerId);
+
+  for (const { models, provider, providerId } of preparedProviders) {
+    defaultModelConfig ??= pickDefaultModel({ ...provider, models }, providerId);
+    validModelIdsByProvider.set(providerId, new Set(models.map(({ id }) => id)));
+  }
 
   await serverDB.transaction(async (tx) => {
-    const validProviderIds: string[] = [];
-
-    for (const p of config.providers) {
-      const providerId = normalizeSub2ApiProviderId(p.id);
-      if (!providerId || !p.api_key || !p.base_url || p.models.length === 0) continue;
-
-      validProviderIds.push(providerId);
-      defaultModelConfig ??= pickDefaultModel(p, providerId);
-      const encryptedKeyVaults = await gateKeeper.encrypt(
-        JSON.stringify({ apiKey: p.api_key, baseURL: p.base_url }),
-      );
-
+    const now = new Date();
+    if (preparedProviders.length > 0) {
       await tx
         .insert(aiProviders)
-        .values({
-          checkModel: p.models[0]?.id,
-          enabled: true,
-          id: providerId,
-          keyVaults: encryptedKeyVaults,
-          name: p.display_name,
-          settings: { sdkType: p.sdk_type },
-          source: 'custom',
-          userId: lobeUserId,
-        })
+        .values(
+          preparedProviders.map(({ encryptedKeyVaults, models, provider, providerId }) => ({
+            checkModel: models[0]?.id,
+            enabled: true,
+            id: providerId,
+            keyVaults: encryptedKeyVaults,
+            name: provider.display_name,
+            settings: { sdkType: provider.sdk_type },
+            source: 'custom' as const,
+            userId: lobeUserId,
+          })),
+        )
         .onConflictDoUpdate({
           set: {
-            checkModel: p.models[0]?.id,
-            enabled: true,
-            keyVaults: encryptedKeyVaults,
-            name: p.display_name,
-            settings: { sdkType: p.sdk_type },
-            source: 'custom',
-            updatedAt: new Date(),
+            checkModel: sql`excluded.check_model`,
+            enabled: sql`excluded.enabled`,
+            keyVaults: sql`excluded.key_vaults`,
+            name: sql`excluded.name`,
+            settings: sql`excluded.settings`,
+            source: sql`excluded.source`,
+            updatedAt: now,
           },
           target: [aiProviders.id, aiProviders.userId],
           targetWhere: isNull(aiProviders.workspaceId),
         });
 
-      const validModelIds: string[] = [];
-      for (const m of p.models) {
-        if (!m.id) continue;
-        const modelDisplayName = sub2ApiModelDisplayName(m);
-        validModelIds.push(m.id);
-        await tx
-          .insert(aiModels)
-          .values({
-            displayName: modelDisplayName,
-            enabled: true,
-            id: m.id,
-            providerId,
-            source: 'custom',
-            type: 'chat',
-            userId: lobeUserId,
-          })
-          .onConflictDoUpdate({
-            set: {
-              displayName: modelDisplayName,
+      await tx
+        .insert(aiModels)
+        .values(
+          preparedProviders.flatMap(({ models, providerId }) =>
+            models.map((model) => ({
+              displayName: sub2ApiModelDisplayName(model),
               enabled: true,
-              source: 'custom',
-              updatedAt: new Date(),
-            },
-            target: [aiModels.id, aiModels.providerId, aiModels.userId],
-            targetWhere: isNull(aiModels.workspaceId),
-          });
-      }
-      validModelIdsByProvider.set(providerId, new Set(validModelIds));
+              id: model.id,
+              providerId,
+              source: 'custom' as const,
+              type: 'chat' as const,
+              userId: lobeUserId,
+            })),
+          ),
+        )
+        .onConflictDoUpdate({
+          set: {
+            displayName: sql`excluded.display_name`,
+            enabled: sql`excluded.enabled`,
+            source: sql`excluded.source`,
+            updatedAt: now,
+          },
+          target: [aiModels.id, aiModels.providerId, aiModels.userId],
+          targetWhere: isNull(aiModels.workspaceId),
+        });
+    }
 
+    for (const { models, providerId } of preparedProviders) {
+      const validModelIds = models.map(({ id }) => id);
       if (validModelIds.length > 0) {
         await tx
           .delete(aiModels)

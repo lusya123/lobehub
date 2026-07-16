@@ -1,19 +1,24 @@
 'use client';
 
 import { MARKDOWN_MIME_TYPES } from '@lobechat/const';
+import { Skeleton } from '@lobehub/ui';
 import type { CSSProperties } from 'react';
 import { memo } from 'react';
 
 import { isHtmlFile } from '@/components/HtmlPreview';
+import dynamic from '@/libs/next/dynamic';
 import { type FileListItem } from '@/types/files';
 
 import NotSupport from './NotSupport';
-import CodeViewer from './Renderer/Code';
-import HTMLViewer from './Renderer/HTML';
-import ImageViewer from './Renderer/Image';
-import MSDocViewer from './Renderer/MSDoc';
-import PDFViewer from './Renderer/PDF';
-import VideoViewer from './Renderer/Video';
+
+const loading = () => <Skeleton active paragraph={{ rows: 6 }} />;
+
+const CodeViewer = dynamic(() => import('./Renderer/Code'), { loading, ssr: false });
+const HTMLViewer = dynamic(() => import('./Renderer/HTML'), { loading, ssr: false });
+const ImageViewer = dynamic(() => import('./Renderer/Image'), { loading, ssr: false });
+const MSDocViewer = dynamic(() => import('./Renderer/MSDoc'), { loading, ssr: false });
+const PDFViewer = dynamic(() => import('./Renderer/PDF'), { loading, ssr: false });
+const VideoViewer = dynamic(() => import('./Renderer/Video'), { loading, ssr: false });
 
 // File type definitions
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'];

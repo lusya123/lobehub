@@ -9,6 +9,7 @@ import { type BetterAuthOptions } from 'better-auth/minimal';
 import { betterAuth } from 'better-auth/minimal';
 import { admin, emailOTP, genericOAuth, magicLink } from 'better-auth/plugins';
 import { type BetterAuthPlugin } from 'better-auth/types';
+import { after } from 'next/server';
 import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
 import { appEnv } from '@/envs/app';
@@ -203,7 +204,7 @@ export function defineConfig(customOptions: CustomBetterAuthOptions) {
         },
         update: {
           after: async (authAccount) => {
-            await provisionSub2ApiFromAccount(authAccount);
+            await provisionSub2ApiFromAccount(authAccount, { deferWhenConfigured: after });
           },
         },
       },

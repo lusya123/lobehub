@@ -1,16 +1,27 @@
-import { Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 
-import Loading from '@/components/Loading/BrandTextLoading';
+import { useChatStore } from '@/store/chat';
+import { chatPortalSelectors } from '@/store/chat/selectors';
 
 import Portal from './features/Portal';
-import PortalPanel from './features/PortalPanel';
+
+const PortalPanel = lazy(() => import('./features/PortalPanel'));
 
 const ChatPortal = () => {
+  const showPortal = useChatStore(chatPortalSelectors.showPortal);
+  const [hasOpened, setHasOpened] = useState(showPortal);
+
+  useEffect(() => {
+    if (showPortal) setHasOpened(true);
+  }, [showPortal]);
+
   return (
     <Portal>
-      <Suspense fallback={<Loading debugId={'ChatPortal'} />}>
-        <PortalPanel mobile={false} />
-      </Suspense>
+      {(showPortal || hasOpened) && (
+        <Suspense>
+          <PortalPanel mobile={false} />
+        </Suspense>
+      )}
     </Portal>
   );
 };

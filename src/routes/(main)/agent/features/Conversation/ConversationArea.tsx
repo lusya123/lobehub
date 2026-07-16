@@ -3,13 +3,14 @@
 import { Flexbox } from '@lobehub/ui';
 import { cssVar } from 'antd-style';
 import debug from 'debug';
-import { memo, Suspense, useMemo } from 'react';
+import { lazy, memo, Suspense, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import AgentHome from '@/features/AgentHome';
-import ChatMiniMap from '@/features/ChatMiniMap';
-import { ChatList, ConversationProvider } from '@/features/Conversation';
+import { MIN_MESSAGES_THRESHOLD } from '@/features/ChatMiniMap/utils';
+import SkeletonList from '@/features/Conversation/components/SkeletonList';
+import { ConversationProvider } from '@/features/Conversation/ConversationProvider';
 import { useChatFollowUp } from '@/features/Conversation/hooks/useChatFollowUp';
+import { dataSelectors, useConversationStore } from '@/features/Conversation/store';
 import { mergeConversationHooks } from '@/features/Conversation/utils/mergeConversationHooks';
 import { useGatewayReconnect } from '@/hooks/useGatewayReconnect';
 import { useOperationState } from '@/hooks/useOperationState';
@@ -19,7 +20,6 @@ import { useChatStore } from '@/store/chat';
 import { threadSelectors, topicSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
-import HeterogeneousChatInput from './HeterogeneousChatInput';
 import MainChatInput from './MainChatInput';
 import MessageFromUrl from './MainChatInput/MessageFromUrl';
 import ThreadHydration from './ThreadHydration';
@@ -27,6 +27,23 @@ import { useActionsBarConfig } from './useActionsBarConfig';
 import { useAgentContext } from './useAgentContext';
 
 const log = debug('lobe-render:agent:ConversationArea');
+const AgentHome = lazy(() => import('@/features/AgentHome'));
+const ChatList = lazy(() => import('@/features/Conversation/ChatList'));
+const ChatMiniMap = lazy(() => import('@/features/ChatMiniMap'));
+const HeterogeneousChatInput = lazy(() => import('./HeterogeneousChatInput'));
+
+const DeferredChatMiniMap = memo(() => {
+  const messageCount = useConversationStore(dataSelectors.displayMessageIds).length;
+  if (messageCount <= MIN_MESSAGES_THRESHOLD) return null;
+
+  return (
+    <Suspense>
+      <ChatMiniMap />
+    </Suspense>
+  );
+});
+
+DeferredChatMiniMap.displayName = 'DeferredChatMiniMap';
 
 /**
  * ConversationArea
@@ -40,10 +57,7 @@ const Conversation = memo(() => {
 
   // Get raw dbMessages from ChatStore for this context
   // ConversationStore will parse them internally to generate displayMessages
-  const chatKey = useMemo(
-    () => messageMapKey(context),
-    [context.agentId, context.topicId, context.threadId],
-  );
+  const chatKey = messageMapKey(context);
   const replaceMessages = useChatStore((s) => s.replaceMessages);
   const messages = useChatStore((s) => s.dbMessagesMap[chatKey]);
 
@@ -105,35 +119,48 @@ const Conversation = memo(() => {
           position: 'relative',
         }}
       >
-        <ChatList
-          defaultWorkflowExpandLevel={isHeterogeneousAgent ? { streaming: 'full' } : undefined}
-          welcome={<AgentHome />}
-          footerSlot={
-            isSubagentThread ? (
-              <Flexbox
-                horizontal
-                align={'center'}
-                justify={'center'}
-                paddingBlock={6}
-                paddingInline={16}
-              >
-                <span
-                  style={{
-                    color: cssVar.colorTextDescription,
-                    fontSize: 12,
-                    textAlign: 'center',
-                  }}
+        <Suspense fallback={<SkeletonList />}>
+          <ChatList
+            defaultWorkflowExpandLevel={isHeterogeneousAgent ? { streaming: 'full' } : undefined}
+            footerSlot={
+              isSubagentThread ? (
+                <Flexbox
+                  horizontal
+                  align={'center'}
+                  justify={'center'}
+                  paddingBlock={6}
+                  paddingInline={16}
                 >
-                  {t('thread.subagentReadOnlyHint')}
-                </span>
-              </Flexbox>
-            ) : undefined
-          }
-        />
+                  <span
+                    style={{
+                      color: cssVar.colorTextDescription,
+                      fontSize: 12,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {t('thread.subagentReadOnlyHint')}
+                  </span>
+                </Flexbox>
+              ) : undefined
+            }
+            welcome={
+              <Suspense>
+                <AgentHome />
+              </Suspense>
+            }
+          />
+        </Suspense>
       </Flexbox>
-      {!isSubagentThread && (isHeterogeneousAgent ? <HeterogeneousChatInput /> : <MainChatInput />)}
+      {!isSubagentThread &&
+        (isHeterogeneousAgent ? (
+          <Suspense>
+            <HeterogeneousChatInput />
+          </Suspense>
+        ) : (
+          <MainChatInput />
+        ))}
       <ThreadHydration />
-      <ChatMiniMap />
+      <DeferredChatMiniMap />
       <Suspense>
         <MessageFromUrl />
       </Suspense>

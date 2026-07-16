@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => {
     deletes: [] as any[],
     inserts: [] as any[],
     selects: [] as any[],
+    serverSelectResults: [] as any[][],
     tx: undefined as any,
     updates: [] as any[],
   };
@@ -102,7 +103,7 @@ const mocks = vi.hoisted(() => {
     select: vi.fn((selection) => {
       state.selects.push(selection);
 
-      return createLimitChain([]);
+      return createLimitChain(state.serverSelectResults.shift() ?? []);
     }),
     transaction: vi.fn(async (callback) => {
       state.tx = createTx();
@@ -142,6 +143,7 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn((value) => ({ op: 'isNull', value })),
   like: vi.fn((left, right) => ({ left, op: 'like', right })),
   notInArray: vi.fn((left, right) => ({ left, op: 'notInArray', right })),
+  sql: vi.fn((strings, ...values) => ({ op: 'sql', strings: [...strings], values })),
 }));
 
 vi.mock('@/database/models/session', () => ({
@@ -164,6 +166,7 @@ describe('sub2api provisioning', () => {
     mocks.state.deletes = [];
     mocks.state.inserts = [];
     mocks.state.selects = [];
+    mocks.state.serverSelectResults = [];
     mocks.state.tx = undefined;
     mocks.state.updates = [];
 
@@ -211,21 +214,25 @@ describe('sub2api provisioning', () => {
     );
     const modelInsert = mocks.state.inserts.find(({ table }) => table === mocks.schemas.aiModels);
 
-    expect(providerInsert.value).toMatchObject({
-      id: 'sub2api-openai',
-      userId: 'lobe-user',
-    });
-    expect(modelInsert.value).toMatchObject({
-      displayName: 'GPT 5.1',
-      id: 'gpt-5.1',
-      providerId: 'sub2api-openai',
-      userId: 'lobe-user',
-    });
+    expect(providerInsert.value).toEqual([
+      expect.objectContaining({
+        id: 'sub2api-openai',
+        userId: 'lobe-user',
+      }),
+    ]);
+    expect(modelInsert.value).toEqual([
+      expect.objectContaining({
+        displayName: 'GPT 5.1',
+        id: 'gpt-5.1',
+        providerId: 'sub2api-openai',
+        userId: 'lobe-user',
+      }),
+    ]);
     expect(mocks.state.createInbox).toHaveBeenCalledWith({
       model: 'gpt-5.1',
       provider: 'sub2api-openai',
     });
-    expect(providerInsert.value.id).not.toBe('openai');
+    expect(providerInsert.value[0].id).not.toBe('openai');
     expect(providerInsert.onConflictDoUpdate.targetWhere).toEqual({
       op: 'isNull',
       value: mocks.schemas.aiProviders.workspaceId,
@@ -234,5 +241,101 @@ describe('sub2api provisioning', () => {
       op: 'isNull',
       value: mocks.schemas.aiModels.workspaceId,
     });
+  });
+
+  it('batches provider and model upserts instead of writing each model separately', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          providers: [
+            {
+              api_key: 'sk-openai',
+              base_url: 'http://127.0.0.1:18080/v1',
+              display_name: 'OpenAI Group',
+              id: 'group-openai',
+              models: [
+                { display_name: 'GPT 5.1', id: 'gpt-5.1' },
+                { display_name: 'GPT 5.2', id: 'gpt-5.2' },
+              ],
+              sdk_type: 'openai',
+            },
+            {
+              api_key: 'sk-anthropic',
+              base_url: 'http://127.0.0.1:18080/v1',
+              display_name: 'Anthropic Group',
+              id: 'group-anthropic',
+              models: [
+                { display_name: 'Sonnet 4.5', id: 'claude-sonnet-4-5' },
+                { display_name: 'Opus 4', id: 'claude-opus-4' },
+              ],
+              sdk_type: 'anthropic',
+            },
+          ],
+          user_id: 'sub2api-user',
+        }),
+      ),
+    );
+
+    const { provisionFromSub2Api } = await import('./sub2api-provision');
+
+    await provisionFromSub2Api('lobe-user', 'sub2api-user');
+
+    const providerInserts = mocks.state.inserts.filter(
+      ({ table }) => table === mocks.schemas.aiProviders,
+    );
+    const modelInserts = mocks.state.inserts.filter(
+      ({ table }) => table === mocks.schemas.aiModels,
+    );
+
+    expect(providerInserts).toHaveLength(1);
+    expect(providerInserts[0].value).toHaveLength(2);
+    expect(modelInserts).toHaveLength(1);
+    expect(modelInserts[0].value).toHaveLength(4);
+  });
+
+  it('refreshes synchronously when the user has no Sub2API provider yet', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        providers: [],
+        user_id: 'sub2api-user',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const schedule = vi.fn();
+    const { refreshSub2ApiConfig } = await import('./sub2api-provision');
+
+    const result = await refreshSub2ApiConfig('lobe-user', 'sub2api-user', {
+      deferWhenConfigured: schedule,
+    });
+
+    expect(result).toBe('completed');
+    expect(schedule).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('defers refreshes for users that already have a Sub2API provider', async () => {
+    mocks.state.serverSelectResults = [[{ id: 'sub2api-group-openai' }]];
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        providers: [],
+        user_id: 'sub2api-user',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const schedule = vi.fn();
+    const { refreshSub2ApiConfig } = await import('./sub2api-provision');
+
+    const result = await refreshSub2ApiConfig('lobe-user', 'sub2api-user', {
+      deferWhenConfigured: schedule,
+    });
+
+    expect(result).toBe('deferred');
+    expect(schedule).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await schedule.mock.calls[0][0]();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

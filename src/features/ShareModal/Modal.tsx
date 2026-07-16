@@ -8,12 +8,20 @@ import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
+import dynamic from '@/libs/next/dynamic';
 
 import ShareDataProvider, { useShareData } from './ShareDataProvider';
-import ShareImage from './ShareImage';
-import ShareJSON from './ShareJSON';
-import SharePdf from './SharePdf';
-import ShareText from './ShareText';
+
+const loading = () => (
+  <Flexbox gap={12} paddingBlock={8}>
+    <Skeleton active paragraph={{ rows: 8 }} />
+  </Flexbox>
+);
+
+const ShareImage = dynamic(() => import('./ShareImage'), { loading, ssr: false });
+const ShareJSON = dynamic(() => import('./ShareJSON'), { loading, ssr: false });
+const SharePdf = dynamic(() => import('./SharePdf'), { loading, ssr: false });
+const ShareText = dynamic(() => import('./ShareText'), { loading, ssr: false });
 
 enum Tab {
   JSON = 'json',

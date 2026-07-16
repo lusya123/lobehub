@@ -230,7 +230,7 @@ export const ListItemRenderer = memo<ListItemRendererProps>(
 
       case 'model-item-multiple': {
         return (
-          <Flexbox key={item.data.displayName} style={{ marginBlock: 1, marginInline: 4 }}>
+          <Flexbox key={item.data.model.id} style={{ marginBlock: 1, marginInline: 4 }}>
             <MultipleProvidersModelItem
               activeKey={activeKey}
               data={item.data}

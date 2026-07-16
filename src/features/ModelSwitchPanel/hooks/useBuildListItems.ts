@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { type EnabledProviderWithModels } from '@/types/aiProvider';
 
 import { type GroupMode, type ListItem, type ModelWithProviders } from '../types';
+import { normalizeModelDisplayName } from '../utils';
 
 export const useBuildListItems = (
   enabledList: EnabledProviderWithModels[],
@@ -34,21 +35,25 @@ export const useBuildListItems = (
 
       for (const providerItem of sortedProviders) {
         for (const modelItem of providerItem.children) {
-          const displayName = modelItem.displayName || modelItem.id;
+          const displayName = normalizeModelDisplayName(
+            modelItem.displayName,
+            modelItem.id,
+            providerItem.name,
+          );
 
           if (!matchesSearch(displayName) && !matchesSearch(providerItem.name)) {
             continue;
           }
 
-          if (!modelMap.has(displayName)) {
-            modelMap.set(displayName, {
+          if (!modelMap.has(modelItem.id)) {
+            modelMap.set(modelItem.id, {
               displayName,
-              model: modelItem,
+              model: { ...modelItem, displayName },
               providers: [],
             });
           }
 
-          const entry = modelMap.get(displayName)!;
+          const entry = modelMap.get(modelItem.id)!;
           entry.providers.push({
             id: providerItem.id,
             logo: providerItem.logo,
@@ -81,11 +86,20 @@ export const useBuildListItems = (
       const items: ListItem[] = [];
 
       for (const providerItem of sortedProviders) {
-        const filteredModels = providerItem.children.filter(
-          (modelItem) =>
-            matchesSearch(modelItem.displayName || modelItem.id) ||
-            matchesSearch(providerItem.name),
-        );
+        const filteredModels = providerItem.children
+          .map((modelItem) => ({
+            ...modelItem,
+            displayName: normalizeModelDisplayName(
+              modelItem.displayName,
+              modelItem.id,
+              providerItem.name,
+            ),
+          }))
+          .filter(
+            (modelItem) =>
+              matchesSearch(modelItem.displayName || modelItem.id) ||
+              matchesSearch(providerItem.name),
+          );
 
         if (filteredModels.length > 0 || !searchKeyword.trim()) {
           items.push({ provider: providerItem, type: 'group-header' });

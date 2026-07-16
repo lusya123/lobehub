@@ -13,7 +13,7 @@ import { useModelAndProvider } from '../../hooks/useModelAndProvider';
 import { usePanelHandlers } from '../../hooks/usePanelHandlers';
 import { styles } from '../../styles';
 import { type GroupMode } from '../../types';
-import { menuKey } from '../../utils';
+import { getListItemKey, menuKey } from '../../utils';
 import type { PricingMode } from '../ModelDetailPanel';
 import GenerationListItemRenderer from './GenerationListItemRenderer';
 import { ListItemRenderer } from './ListItemRenderer';
@@ -108,15 +108,8 @@ export const List: FC<ListProps> = ({
       style={{ height: listHeight }}
       onScroll={handleListScroll}
     >
-      {listItems.map((item, index) => {
-        const itemKey = menuKey(
-          'provider' in item && item.provider ? item.provider.id : '',
-          'model' in item && item.model
-            ? item.model.id
-            : 'data' in item && item.data
-              ? item.data.displayName
-              : `${item.type}-${index}`,
-        );
+      {listItems.map((item) => {
+        const itemKey = getListItemKey(item);
         const isActive =
           (item.type === 'provider-model-item' &&
             menuKey(item.provider.id, item.model.id) === activeKey) ||

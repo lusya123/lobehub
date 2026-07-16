@@ -216,6 +216,7 @@ describe('sub2api provisioning', () => {
       userId: 'lobe-user',
     });
     expect(modelInsert.value).toMatchObject({
+      displayName: 'GPT 5.1',
       id: 'gpt-5.1',
       providerId: 'sub2api-openai',
       userId: 'lobe-user',

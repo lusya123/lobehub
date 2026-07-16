@@ -162,7 +162,7 @@ export async function provisionFromSub2Api(lobeUserId: string, sub2apiUserId: st
       const validModelIds: string[] = [];
       for (const m of p.models) {
         if (!m.id) continue;
-        const modelDisplayName = sub2ApiModelDisplayName(p, m);
+        const modelDisplayName = sub2ApiModelDisplayName(m);
         validModelIds.push(m.id);
         await tx
           .insert(aiModels)
@@ -368,10 +368,7 @@ const pickDefaultModel = (
   return { model, provider: providerId };
 };
 
-const sub2ApiModelDisplayName = (provider: Sub2ApiProvider, model: Sub2ApiModel) => {
-  const modelName = model.display_name || model.id;
-  return provider.display_name ? `${provider.display_name} / ${modelName}` : modelName;
-};
+const sub2ApiModelDisplayName = (model: Sub2ApiModel) => model.display_name || model.id;
 
 export async function findLobeUserIdBySub2ApiUserId(sub2apiUserId: string) {
   const row = await serverDB.query.account.findFirst({

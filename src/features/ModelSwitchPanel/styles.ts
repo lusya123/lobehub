@@ -50,6 +50,15 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
   menuItemActive: css`
     background: ${cssVar.colorFillTertiary};
   `,
+  selectedProvider: css`
+    overflow: hidden;
+    flex: none;
+
+    max-width: 96px;
+
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  `,
   footer: css`
     border-block-start: 1px solid ${cssVar.colorBorderSecondary};
   `,

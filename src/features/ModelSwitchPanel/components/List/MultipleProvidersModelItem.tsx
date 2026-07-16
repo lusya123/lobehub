@@ -55,15 +55,11 @@ export const MultipleProvidersModelItem = memo<MultipleProvidersModelItemProps>(
 
     const activeProvider = data.providers.find((p) => menuKey(p.id, data.model.id) === activeKey);
     const isActive = !!activeProvider;
-    const defaultProvider = data.providers[0];
-    const defaultProviderRestricted = Boolean(
-      defaultProvider && isModelRestricted?.(data.model.id, defaultProvider.id),
-    );
-
-    const allRestricted =
+    const allRestricted = Boolean(
       isModelRestricted &&
       data.providers.length > 0 &&
-      data.providers.every((p) => isModelRestricted(data.model.id, p.id));
+      data.providers.every((p) => isModelRestricted(data.model.id, p.id)),
+    );
 
     return (
       <DropdownMenuSubmenuRoot
@@ -76,28 +72,31 @@ export const MultipleProvidersModelItem = memo<MultipleProvidersModelItemProps>(
         <DropdownMenuSubmenuTrigger
           className={cx(menuSharedStyles.item, isActive && styles.menuItemActive)}
           style={{ paddingBlock: 8, paddingInline: 8 }}
-          onClick={() => {
-            if (defaultProviderRestricted) {
+          onClick={(event) => {
+            if (allRestricted) {
+              event.preventDefault();
               onRestrictedModelClick?.();
               onClose();
               return;
             }
-            if (!defaultProvider) {
-              onClose();
-              return;
-            }
-            setSubmenuOpen(false);
-            onModelChange(data.model.id, defaultProvider.id);
-            onClose();
+
+            setSubmenuOpen(true);
           }}
         >
-          <ModelItemRender
-            {...data.model}
-            {...data.model.abilities}
-            newBadgeLabel={newLabel}
-            proBadgeLabel={defaultProviderRestricted ? proLabel : undefined}
-            showInfoTag={showInfoTag}
-          />
+          <Flexbox horizontal align="center" gap={8} width="100%">
+            <ModelItemRender
+              {...data.model}
+              {...data.model.abilities}
+              newBadgeLabel={newLabel}
+              showInfoTag={showInfoTag}
+              style={{ flex: 1, minWidth: 0 }}
+            />
+            {activeProvider && (
+              <Tag className={styles.selectedProvider} size="small" title={activeProvider.name}>
+                {activeProvider.name}
+              </Tag>
+            )}
+          </Flexbox>
         </DropdownMenuSubmenuTrigger>
         <DropdownMenuPortal>
           <DropdownMenuPositioner anchor={null} placement="right" sideOffset={12}>

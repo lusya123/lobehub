@@ -4,8 +4,8 @@ interface RouteChunkPreloadRoute {
   id: string;
   includeDynamicImports?: boolean;
   includeStaticImports?: boolean;
-  modules: string[];
-  patterns: string[];
+  modules: readonly string[];
+  patterns: readonly string[];
 }
 
 interface RuntimeRoutePreloadEntry {
@@ -61,22 +61,31 @@ const isCriticalRouteSmallChunkFileName = (fileName: string) => {
   return criticalRouteSmallChunkFileNamePatterns.some((pattern) => pattern.test(basename));
 };
 
+const desktopChatRouteModules = [
+  'src/routes/(main)/_layout',
+  'src/routes/(main)/agent/_layout',
+  'src/routes/(main)/agent/(chat)/_layout',
+  'src/routes/(main)/agent',
+] as const;
+
 const defaultRoutePreloadGroups = [
   {
     id: 'desktop-chat-launch',
-    includeDynamicImports: true,
+    includeDynamicImports: false,
     includeStaticImports: true,
-    modules: [
-      'src/routes/(main)/_layout',
-      'src/routes/(main)/agent/_layout',
-      'src/routes/(main)/agent/(chat)/_layout',
-      'src/routes/(main)/agent',
-    ],
+    modules: desktopChatRouteModules,
     patterns: ['^/agent(/|$)'],
   },
 ] as const satisfies RouteChunkPreloadRoute[];
 
 const defaultIdleRoutePreloadGroups = [
+  {
+    id: 'desktop-chat-deferred',
+    includeDynamicImports: true,
+    includeStaticImports: true,
+    modules: desktopChatRouteModules,
+    patterns: ['^/agent(/|$)'],
+  },
   {
     id: 'desktop-group-chat',
     includeDynamicImports: true,
@@ -491,7 +500,7 @@ function createIdleWarmupScript(manifest: IdleWarmupManifest, base: string, depl
     '      (()=>{',
     `        const m=${JSON.stringify(payload)};`,
     '        const c=navigator.connection||navigator.mozConnection||navigator.webkitConnection;',
-    '        if(c&&(c.saveData||/(^|-)2g$/.test(c.effectiveType||"")))return;',
+    '        if(c&&(c.saveData||/^(slow-2g|2g|3g)$/.test(c.effectiveType||"")))return;',
     '        const seen=new Set([...document.querySelectorAll("link[href],script[src]")].map((n)=>n.href||n.src));',
     '        const idle=(cb)=>"requestIdleCallback"in window?requestIdleCallback(cb,{timeout:3e3}):setTimeout(()=>cb({didTimeout:true,timeRemaining:()=>16}),1200);',
     '        const visible=(cb)=>document.hidden?document.addEventListener("visibilitychange",()=>!document.hidden&&cb(),{once:true}):cb();',
@@ -501,7 +510,8 @@ function createIdleWarmupScript(manifest: IdleWarmupManifest, base: string, depl
     '        const warmQueue=(items)=>{let i=0,a=0;const pump=()=>visible(()=>{while(a<2&&i<items.length){a++;warm(items[i++]).finally(()=>{a--;idle(pump);});}});idle(pump);};',
     '        const toHref=(f)=>new URL(f,m.base&&m.base!=="./"?location.origin+m.base:location.href).href;',
     '        const warmAll=()=>{if(!m.allJsManifest)return;fetch(m.allJsManifest,{cache:"force-cache",credentials:"same-origin"}).then((r)=>r.ok?r.json():[]).then((files)=>warmQueue(files.map(toHref))).catch(()=>{});};',
-    '        const start=()=>setTimeout(()=>idle(()=>run(m.idleRoutePreload,addModulepreload,4,()=>{warmQueue(m.idleRouteFetch||[]);setTimeout(()=>idle(warmAll),1.2e4);})),2e3);',
+    '        const schedule=()=>setTimeout(()=>idle(()=>run(m.idleRoutePreload,addModulepreload,4,()=>{warmQueue(m.idleRouteFetch||[]);setTimeout(()=>idle(warmAll),1.2e4);})),8e3);',
+    '        const start=()=>{if(!document.getElementById("loading-screen"))return schedule();const o=new MutationObserver(()=>{if(document.getElementById("loading-screen"))return;o.disconnect();schedule();});o.observe(document.documentElement,{childList:true,subtree:true});};',
     '        document.readyState==="complete"?start():window.addEventListener("load",start,{once:true});',
     '      })();',
     '    </script>',
@@ -605,11 +615,14 @@ export function routeChunkPreload(options: RouteChunkPreloadOptions = {}): Plugi
                   }),
                 ...idleManifest
                   .flatMap((entry) => entry.preload)
-                  .filter(
-                    (fileName) =>
-                      (chunkSizeByFileName.get(fileName) ?? minInitialRoutePreloadSize) >=
-                      minInitialRoutePreloadSize,
-                  ),
+                  .filter((fileName) => {
+                    const size = chunkSizeByFileName.get(fileName) ?? minInitialRoutePreloadSize;
+
+                    return (
+                      size >= minInitialRoutePreloadSize ||
+                      isCriticalRouteSmallChunkFileName(fileName)
+                    );
+                  }),
               ]),
             ],
           },

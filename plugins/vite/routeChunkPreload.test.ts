@@ -28,7 +28,7 @@ function createChunk(overrides: Partial<TestOutputChunk>): TestOutputChunk {
 }
 
 describe('routeChunkPreload', () => {
-  it('creates route preload entries from emitted route chunk filenames', () => {
+  it('keeps initial chat preload to route chunks and static imports', () => {
     const bundle = {
       'assets/agent-CJm8x.js': createChunk({
         dynamicImports: ['assets/MainChatInput-BwuHC6qv.js', 'assets/typescript-D20RI-Hp.js'],
@@ -55,11 +55,7 @@ describe('routeChunkPreload', () => {
     const manifest = __testing.createRoutePreloadManifest(bundle, '/repo');
     const agentEntry = manifest.find((entry) => entry.id === 'desktop-chat-launch');
 
-    expect(agentEntry?.preload).toEqual([
-      'assets/agent-CJm8x.js',
-      'vendor/vendor-icons-Bd7x.js',
-      'assets/MainChatInput-BwuHC6qv.js',
-    ]);
+    expect(agentEntry?.preload).toEqual(['assets/agent-CJm8x.js', 'vendor/vendor-icons-Bd7x.js']);
   });
 
   it('matches route modules when built from the cloud repository root', () => {
@@ -547,6 +543,9 @@ describe('routeChunkPreload', () => {
     );
 
     expect(result).toContain('/_spa/assets/settings-D8p.js?dpl=dpl_test');
+    expect(result).toContain('/^(slow-2g|2g|3g)$/');
+    expect(result).toContain('document.getElementById("loading-screen")');
+    expect(result).toContain(')),8e3);');
     expect(result).not.toContain('js-warmup-manifest.json');
   });
 

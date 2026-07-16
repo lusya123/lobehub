@@ -8,6 +8,8 @@ import { createAuthClient } from 'better-auth/react';
 
 import { type auth } from '@/auth';
 
+import { fetchWithSessionPrefetch } from './sessionPrefetch';
+
 export const {
   changeEmail,
   linkSocial,
@@ -23,6 +25,7 @@ export const {
   unlinkAccount,
   useSession,
 } = createAuthClient({
+  fetchOptions: { customFetchImpl: fetchWithSessionPrefetch },
   plugins: [
     adminClient(),
     inferAdditionalFields<typeof auth>(),

@@ -31,7 +31,13 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     position: relative;
     overflow: hidden auto;
     overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
     width: 100%;
+
+    [role='menuitem'] {
+      touch-action: pan-y;
+    }
   `,
   menuItem: css`
     cursor: pointer;

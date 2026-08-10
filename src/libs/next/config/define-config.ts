@@ -119,6 +119,19 @@ export function defineConfig(config: CustomNextConfig) {
               key: 'Cache-Control',
               value: 'public, max-age=31536000, immutable',
             },
+            {
+              key: 'CDN-Cache-Control',
+              value: 'public, max-age=31536000, immutable',
+            },
+          ],
+          source: '/_spa/assets/:path*',
+        },
+        {
+          headers: [
+            {
+              key: 'Cache-Control',
+              value: 'public, max-age=31536000, immutable',
+            },
           ],
           source: '/icons/(.*).(png|jpe?g|gif|svg|ico|webp)',
         },

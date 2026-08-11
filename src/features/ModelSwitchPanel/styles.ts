@@ -28,12 +28,17 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     color: ${cssVar.colorTextSecondary};
   `,
   list: css`
+    touch-action: pan-y;
+
     position: relative;
+
     overflow: hidden auto;
     overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
+
     width: 100%;
+    max-height: 100%;
+
+    -webkit-overflow-scrolling: touch;
 
     [role='menuitem'] {
       touch-action: pan-y;
@@ -69,6 +74,7 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
     border-block-start: 1px solid ${cssVar.colorBorderSecondary};
   `,
   toolbar: css`
+    flex-shrink: 0;
     border-block-end: 1px solid ${cssVar.colorBorderSecondary};
   `,
   trigger: css`

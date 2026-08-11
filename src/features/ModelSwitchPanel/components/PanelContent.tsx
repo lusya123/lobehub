@@ -12,6 +12,7 @@ import type { EnabledProviderWithModels } from '@/types/aiProvider';
 import { DEFAULT_WIDTH, ENABLE_RESIZING, MAX_WIDTH, MIN_WIDTH } from '../const';
 import { usePanelSize } from '../hooks/usePanelSize';
 import { usePanelState } from '../hooks/usePanelState';
+import { getPanelLayoutStyle } from '../layout';
 import { List } from './List';
 import type { PricingMode } from './ModelDetailPanel';
 import { Toolbar } from './Toolbar';
@@ -76,7 +77,7 @@ export const PanelContent: FC<PanelContentProps> = ({
         minWidth={MIN_WIDTH}
         position={{ x: 0, y: 0 }}
         size={{ height: panelHeight, width: panelWidth }}
-        style={{ display: 'flex', flexDirection: 'column', position: 'relative' }}
+        style={getPanelLayoutStyle()}
         onResizeStop={(_e, _direction, ref) => {
           handlePanelWidthChange(ref.offsetWidth);
         }}
@@ -87,15 +88,7 @@ export const PanelContent: FC<PanelContentProps> = ({
   }
 
   return (
-    <Flexbox
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: panelHeight,
-        position: 'relative',
-        width: DEFAULT_WIDTH,
-      }}
-    >
+    <Flexbox style={getPanelLayoutStyle({ height: panelHeight, width: DEFAULT_WIDTH })}>
       {content}
     </Flexbox>
   );

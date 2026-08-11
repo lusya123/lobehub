@@ -11,6 +11,7 @@ import { FOOTER_HEIGHT, ITEM_HEIGHT, MAX_PANEL_HEIGHT, TOOLBAR_HEIGHT } from '..
 import { useBuildListItems } from '../../hooks/useBuildListItems';
 import { useModelAndProvider } from '../../hooks/useModelAndProvider';
 import { usePanelHandlers } from '../../hooks/usePanelHandlers';
+import { getScrollableListStyle } from '../../layout';
 import { styles } from '../../styles';
 import { type GroupMode } from '../../types';
 import { getListItemKey, menuKey } from '../../utils';
@@ -105,7 +106,7 @@ export const List: FC<ListProps> = ({
       className={styles.list}
       flex={1}
       ref={listRef}
-      style={{ height: listHeight }}
+      style={getScrollableListStyle(listHeight)}
       onScroll={handleListScroll}
     >
       {listItems.map((item) => {

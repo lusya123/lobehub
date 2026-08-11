@@ -8,11 +8,16 @@ const mocks = vi.hoisted(() => ({
     disableEmailPassword: true,
     oAuthSSOProviders: ['generic-oidc'],
   },
+  findLobeUserIdBySub2ApiUserId: vi.fn(),
+  getSession: vi.fn(),
   signInWithOAuth2: vi.fn(),
 }));
 
 vi.mock('@/auth', () => ({
-  auth: { api: { signInWithOAuth2: mocks.signInWithOAuth2 } },
+  auth: { api: { getSession: mocks.getSession, signInWithOAuth2: mocks.signInWithOAuth2 } },
+}));
+vi.mock('@/libs/auth/sub2api-provision', () => ({
+  findLobeUserIdBySub2ApiUserId: mocks.findLobeUserIdBySub2ApiUserId,
 }));
 
 vi.mock('@/config/featureFlags', () => ({ getServerFeatureFlagsValue: vi.fn(() => ({})) }));
@@ -45,6 +50,8 @@ describe('Sub2API server-side sign in', () => {
     vi.clearAllMocks();
     mocks.authConfig.disableEmailPassword = true;
     mocks.authConfig.oAuthSSOProviders = ['generic-oidc'];
+    mocks.findLobeUserIdBySub2ApiUserId.mockResolvedValue(undefined);
+    mocks.getSession.mockResolvedValue(null);
     mocks.signInWithOAuth2.mockResolvedValue({
       headers: new Headers({
         'set-cookie': 'better-auth.state=state-token; Path=/; HttpOnly; SameSite=Lax',
@@ -78,6 +85,52 @@ describe('Sub2API server-side sign in', () => {
       returnHeaders: true,
     });
     await expect(response.text()).resolves.toBe('');
+  });
+
+  it('goes directly to the callback when the browser already has a LobeHub session', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'lobe-user-1' } });
+    mocks.findLobeUserIdBySub2ApiUserId.mockResolvedValue('lobe-user-1');
+    const callbackURL = '/agent/inbox?provider=sub2api-group-7&modelId=gpt-5.4-mini';
+    const request = createRequest(
+      `?source=sub2api&sub2apiUserId=2412&callbackUrl=${encodeURIComponent(callbackURL)}`,
+    );
+
+    const response = await GET(request, { params });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe(callbackURL);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(mocks.signInWithOAuth2).not.toHaveBeenCalled();
+  });
+
+  it('uses OIDC when the existing LobeHub session belongs to a different Sub2API user', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'lobe-user-1' } });
+    mocks.findLobeUserIdBySub2ApiUserId.mockResolvedValue('lobe-user-2');
+
+    const response = await GET(
+      createRequest('?source=sub2api&sub2apiUserId=2412&callbackUrl=%2Fagent%2Finbox'),
+      { params },
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe(
+      'https://sub2api.example.com/api/v1/oidc/authorize?state=state-token',
+    );
+    expect(mocks.signInWithOAuth2).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to OIDC when the existing-session lookup fails', async () => {
+    mocks.getSession.mockRejectedValue(new Error('session store unavailable'));
+
+    const response = await GET(createRequest('?source=sub2api&callbackUrl=%2Fagent%2Finbox'), {
+      params,
+    });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe(
+      'https://sub2api.example.com/api/v1/oidc/authorize?state=state-token',
+    );
+    expect(mocks.signInWithOAuth2).toHaveBeenCalledOnce();
   });
 
   it('renders the normal sign-in page without the Sub2API source marker', async () => {

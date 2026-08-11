@@ -35,6 +35,15 @@ const appendSetCookieHeaders = (target: Headers, source: Headers) => {
   for (const cookie of cookies) target.append('set-cookie', cookie);
 };
 
+const createNoStoreRedirect = (location: string) =>
+  new Response(null, {
+    headers: {
+      'Cache-Control': 'no-store',
+      'Location': location,
+    },
+    status: 302,
+  });
+
 const startSub2ApiSignIn = async (
   request: Request,
   pathname: string,
@@ -56,8 +65,24 @@ const startSub2ApiSignIn = async (
   const callbackURL = url.searchParams.get('callbackUrl');
   if (!callbackURL || !isSafeRedirectPath(callbackURL)) return;
 
+  const sub2ApiUserId = url.searchParams.get('sub2apiUserId')?.trim();
+
   try {
     const { auth } = await import('@/auth');
+
+    try {
+      const session = await auth.api.getSession({ headers: request.headers });
+
+      if (session?.user?.id && sub2ApiUserId) {
+        const { findLobeUserIdBySub2ApiUserId } = await import('@/libs/auth/sub2api-provision');
+        const mappedLobeUserId = await findLobeUserIdBySub2ApiUserId(sub2ApiUserId);
+
+        if (mappedLobeUserId === session.user.id) return createNoStoreRedirect(callbackURL);
+      }
+    } catch {
+      // A failed session or identity lookup must not prevent the regular OIDC fallback.
+    }
+
     const result = await auth.api.signInWithOAuth2({
       body: {
         callbackURL,
@@ -70,13 +95,7 @@ const startSub2ApiSignIn = async (
 
     if (!result.response.redirect || !result.response.url) return;
 
-    const response = new Response(null, {
-      headers: {
-        'Cache-Control': 'no-store',
-        'Location': result.response.url,
-      },
-      status: 302,
-    });
+    const response = createNoStoreRedirect(result.response.url);
     appendSetCookieHeaders(response.headers, result.headers);
 
     return response;

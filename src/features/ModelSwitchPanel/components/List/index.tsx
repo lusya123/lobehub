@@ -106,7 +106,7 @@ export const List: FC<ListProps> = ({
       className={styles.list}
       flex={1}
       ref={listRef}
-      style={getScrollableListStyle(listHeight)}
+      style={getScrollableListStyle()}
       onScroll={handleListScroll}
     >
       {listItems.map((item) => {

@@ -1,22 +1,30 @@
 import { describe, expect, it } from 'vitest';
 
-import { AVAILABLE_PANEL_HEIGHT, getPanelLayoutStyle, getScrollableListStyle } from './layout';
+import { getAvailablePanelHeight, getPanelLayoutStyle, getScrollableListStyle } from './layout';
 
 describe('ModelSwitchPanel mobile layout', () => {
-  it('caps the panel to the available viewport height', () => {
+  it('uses the concrete available height so Safari can shrink the flex list', () => {
+    expect(getAvailablePanelHeight(460)).toBe('min(460px, var(--available-height, 460px))');
     expect(getPanelLayoutStyle({ height: 460, width: 320 })).toEqual({
       display: 'flex',
       flexDirection: 'column',
-      height: 460,
-      maxHeight: AVAILABLE_PANEL_HEIGHT,
+      height: 'min(460px, var(--available-height, 460px))',
       minHeight: 0,
-      overflow: 'hidden',
       position: 'relative',
       width: 320,
     });
   });
 
-  it('allows the list flex item to shrink into an independent scroll viewport', () => {
-    expect(getScrollableListStyle(372)).toEqual({ height: 372, minHeight: 0 });
+  it('allows the list flex item to shrink without pinning a fixed height', () => {
+    expect(getScrollableListStyle()).toEqual({ minHeight: 0 });
+  });
+
+  it('keeps the resizable panel flexible while Rnd owns its max height', () => {
+    expect(getPanelLayoutStyle()).toEqual({
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: 0,
+      position: 'relative',
+    });
   });
 });

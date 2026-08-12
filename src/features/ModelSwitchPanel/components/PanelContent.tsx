@@ -12,7 +12,7 @@ import type { EnabledProviderWithModels } from '@/types/aiProvider';
 import { DEFAULT_WIDTH, ENABLE_RESIZING, MAX_WIDTH, MIN_WIDTH } from '../const';
 import { usePanelSize } from '../hooks/usePanelSize';
 import { usePanelState } from '../hooks/usePanelState';
-import { getPanelLayoutStyle } from '../layout';
+import { getAvailablePanelHeight, getPanelLayoutStyle } from '../layout';
 import { List } from './List';
 import type { PricingMode } from './ModelDetailPanel';
 import { Toolbar } from './Toolbar';
@@ -73,6 +73,7 @@ export const PanelContent: FC<PanelContentProps> = ({
       <Rnd
         disableDragging
         enableResizing={ENABLE_RESIZING}
+        maxHeight={getAvailablePanelHeight(panelHeight)}
         maxWidth={MAX_WIDTH}
         minWidth={MIN_WIDTH}
         position={{ x: 0, y: 0 }}
